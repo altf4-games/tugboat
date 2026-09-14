@@ -83,7 +83,7 @@ is a small real React + Vite app (a cookie-clicker game) built specifically
 as a Tugboat test target — link it, push a commit, watch it deploy.
 
 <p align="center">
-  <img src="docs/screenshots/landing.png" alt="Tugboat landing page" width="800" />
+  <img src="docs/screenshots/landing.png?v=2" alt="Tugboat landing page" width="800" />
 </p>
 
 <p align="center">
