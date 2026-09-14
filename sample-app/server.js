@@ -4,7 +4,7 @@ const app = express();
 const port = process.env.PORT || 3000;
 
 app.get("/", (req, res) => {
-  res.json({ service: "tugboat-sample-app", status: "ok" });
+  res.json({ service: "tugboat-sample-app", status: "ok", deployedAt: new Date().toISOString() });
 });
 
 app.get("/health", (req, res) => {
