@@ -9,5 +9,8 @@
   },
   "devDependencies": {
     "vitest": "^2.1.4"
+  },
+  "dependencies": {
+    "express": "^5.2.1"
   }
 }
