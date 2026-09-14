@@ -1,4 +1,4 @@
-import { describe, it, expect, afterAll } from "vitest";
+import { describe, it, expect } from "vitest";
 import { spawn, execFileSync } from "node:child_process";
 import http from "node:http";
 import crypto from "node:crypto";
@@ -7,10 +7,12 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { createWebhookServer } from "../src/webhookServer.js";
 import { extractTrycloudflareUrl } from "../src/cloudflaredUrl.js";
+import { createBuildOnPushHandler } from "../src/onPushBuild.js";
+import { imageTagFor } from "../src/buildImage.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(__dirname, "../..");
-const fixturesDir = path.join(__dirname, "fixtures");
+const sampleAppDir = path.join(repoRoot, "sample-app");
 
 function git(args) {
   return execFileSync("git", args, { cwd: repoRoot }).toString().trim();
@@ -66,34 +68,37 @@ function waitForTunnelUrl(child, timeoutMs) {
   });
 }
 
-describe("Phase 1 integration: real GitHub push webhook delivery", () => {
+describe("Phase 2 integration: real push triggers a real pack build of a real, runnable image", () => {
   it(
-    "receives and correctly parses a real push webhook fired by a real GitHub push, via a real cloudflared tunnel",
+    "produces and runs a real tagged image after a real GitHub push webhook",
     async () => {
       const secret = crypto.randomBytes(32).toString("hex");
       const repo = repoFullName();
       const token = githubToken();
-      const branchName = `webhook-test/${Date.now()}`;
+      const branchName = `build-test/${Date.now()}`;
 
-      const receivedPushes = [];
-      const receivedRawPayloads = [];
-      let resolveFirstPush;
-      const firstPush = new Promise((resolve) => {
-        resolveFirstPush = resolve;
+      let resolveBuildDone;
+      let rejectBuildDone;
+      const buildDone = new Promise((resolve, reject) => {
+        resolveBuildDone = resolve;
+        rejectBuildDone = reject;
+      });
+
+      const buildHandler = createBuildOnPushHandler({
+        appPath: sampleAppDir,
+        onBuildComplete: (result) => resolveBuildDone(result),
+        onBuildError: (err) => rejectBuildDone(err),
       });
 
       const app = createWebhookServer({
         secret,
         onPush: (parsed, rawPayload) => {
           // This webhook fires for every push on the repo, including ones
-          // from other tests/branches; only react to our own branch.
+          // from other tests/branches; only build our own branch's push.
           if (parsed.branch !== branchName) return;
-          receivedPushes.push(parsed);
-          receivedRawPayloads.push(rawPayload);
-          resolveFirstPush();
+          buildHandler(parsed, rawPayload);
         },
       });
-
       const server = http.createServer(app);
       await new Promise((resolve) => server.listen(0, resolve));
       const port = server.address().port;
@@ -107,14 +112,11 @@ describe("Phase 1 integration: real GitHub push webhook delivery", () => {
       let hookId;
       let branchCreated = false;
       let branchPushed = false;
+      let imageTag;
+      let containerName;
 
       try {
         const tunnelUrl = await waitForTunnelUrl(tunnel, 30_000);
-
-        // GitHub's resolvers see the fresh trycloudflare.com subdomain
-        // immediately (this machine's local DNS may lag behind and is not
-        // a reliable readiness signal); give the tunnel edge a brief moment
-        // to finish wiring up before registering the webhook.
         await new Promise((resolve) => setTimeout(resolve, 5_000));
 
         const hook = await githubApi(token, "POST", `/repos/${repo}/hooks`, {
@@ -134,35 +136,60 @@ describe("Phase 1 integration: real GitHub push webhook delivery", () => {
         branchCreated = true;
         const markerDir = path.join(repoRoot, ".webhook-test");
         fs.mkdirSync(markerDir, { recursive: true });
-        const markerFile = path.join(markerDir, "trigger.txt");
-        fs.writeFileSync(markerFile, `Phase 1 webhook smoke test at ${new Date().toISOString()}\n`);
+        const markerFile = path.join(markerDir, "build-trigger.txt");
+        fs.writeFileSync(markerFile, `Phase 2 build smoke test at ${new Date().toISOString()}\n`);
         git(["add", markerFile]);
-        git(["commit", "-m", `test: phase 1 webhook smoke trigger (${branchName})`]);
+        git(["commit", "-m", `test: phase 2 build smoke trigger (${branchName})`]);
         const commitSha = git(["rev-parse", "HEAD"]);
         git(["push", "origin", branchName]);
         branchPushed = true;
 
-        await Promise.race([
-          firstPush,
+        const result = await Promise.race([
+          buildDone,
           new Promise((_, reject) =>
-            setTimeout(() => reject(new Error("Timed out waiting for webhook delivery")), 90_000),
+            setTimeout(() => reject(new Error("Timed out waiting for build to complete")), 180_000),
           ),
         ]);
 
-        expect(receivedPushes).toHaveLength(1);
-        expect(receivedPushes[0].repo).toBe(repo);
-        expect(receivedPushes[0].branch).toBe(branchName);
-        expect(receivedPushes[0].sha).toBe(commitSha);
+        imageTag = result.imageTag;
+        expect(imageTag).toBe(imageTagFor({ repo, sha: commitSha }));
 
-        // Captured once and kept frozen: pushEvent.unit.test.js asserts
-        // against specific values in this file, so later integration runs
-        // must not overwrite it with a different branch/sha.
-        const fixturePath = path.join(fixturesDir, "github-push-event.captured.json");
-        if (!fs.existsSync(fixturePath)) {
-          fs.mkdirSync(fixturesDir, { recursive: true });
-          fs.writeFileSync(fixturePath, JSON.stringify(receivedRawPayloads[0], null, 2) + "\n");
-        }
+        const inspected = JSON.parse(
+          execFileSync("docker", ["image", "inspect", imageTag]).toString(),
+        );
+        expect(inspected).toHaveLength(1);
+        expect(inspected[0].RepoTags).toContain(imageTag);
+
+        containerName = `tugboat-phase2-${Date.now()}`;
+        execFileSync("docker", [
+          "run",
+          "-d",
+          "--rm",
+          "-p",
+          "0:3000",
+          "--name",
+          containerName,
+          imageTag,
+        ]);
+
+        const containerPort = JSON.parse(
+          execFileSync("docker", ["inspect", containerName]).toString(),
+        )[0].NetworkSettings.Ports["3000/tcp"][0].HostPort;
+
+        await new Promise((resolve) => setTimeout(resolve, 2_000));
+
+        const response = await fetch(`http://localhost:${containerPort}/health`);
+        expect(response.status).toBe(200);
+        expect(await response.text()).toBe("ok");
       } finally {
+        if (containerName) {
+          try {
+            execFileSync("docker", ["stop", containerName]);
+          } catch {
+            // best-effort cleanup
+          }
+        }
+
         tunnel.kill();
         await new Promise((resolve) => server.close(resolve));
 
@@ -188,6 +215,6 @@ describe("Phase 1 integration: real GitHub push webhook delivery", () => {
         }
       }
     },
-    180_000,
+    240_000,
   );
 });
