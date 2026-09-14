@@ -11,6 +11,7 @@ import {
   setDeploymentUrl,
   markDeploymentProduction,
   getDeployment,
+  deleteDeployment,
   listDeployments,
   createProject,
   getProjectByRepo,
@@ -81,6 +82,15 @@ describe("db (real SQLite via better-sqlite3)", () => {
     const row = getDeployment(db, id);
     expect(row.preview_url).toBe("https://sha1.127.0.0.1.nip.io");
     expect(row.is_production).toBe(1);
+  });
+
+  it("deletes a deployment by id", () => {
+    const db = openDb(":memory:");
+    const id = createDeployment(db, { repo: "org/app", branch: "main", sha: "sha1" });
+
+    deleteDeployment(db, id);
+
+    expect(getDeployment(db, id)).toBeUndefined();
   });
 });
 

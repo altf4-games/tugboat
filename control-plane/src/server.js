@@ -8,6 +8,7 @@ import {
   openDb,
   listDeployments,
   getDeployment,
+  deleteDeployment,
   createProject,
   getProjectByRepo,
   getProjectById,
@@ -25,9 +26,12 @@ import {
 } from "./githubOAuth.js";
 import { createMultiProjectWebhookRouter } from "./multiProjectWebhook.js";
 import { createProjectPushHandler } from "./projectPipeline.js";
+import { isDeployInFlight } from "./deployLock.js";
 import { createDeleteTeardownHandler } from "./onDeleteTeardown.js";
 import { ensureNetwork, startTraefik, stopTraefik } from "./traefikController.js";
-import { startTunnel } from "./tunnelManager.js";
+import { startTunnel, stopTunnel } from "./tunnelManager.js";
+import { stopAppContainer } from "./runAppContainer.js";
+import { getPreview, removePreview } from "./previewRegistry.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -326,6 +330,12 @@ async function main() {
       }
       const commit = await commitRes.json();
 
+      if (isDeployInFlight({ repo, branch })) {
+        return res
+          .status(409)
+          .json({ error: `A deployment for ${branch} is already in progress` });
+      }
+
       pushHandler({ repo, branch, sha: commit.sha }, project);
       res.json({ ok: true, branch, sha: commit.sha });
     } catch (err) {
@@ -336,6 +346,33 @@ async function main() {
   // --- deployments ---
   app.get("/api/deployments", requireAuth, (req, res) => {
     res.json(listDeployments(db, { repo: req.query.repo }));
+  });
+
+  app.delete("/api/deployments/:id", requireAuth, (req, res) => {
+    const id = Number(req.params.id);
+    const deployment = getDeployment(db, id);
+    if (!deployment) return res.status(404).json({ error: "not found" });
+    if (deployment.is_production) {
+      return res.status(400).json({
+        error: "Can't delete the current production deployment — promote a different one first.",
+      });
+    }
+
+    // Only tear down real infra if this deployment is still the one
+    // actually registered as the branch's live preview; an older,
+    // already-superseded deployment's container was already stopped by
+    // whatever replaced it.
+    const containerName = `tugboat-preview-${id}`;
+    const preview = getPreview({ repo: deployment.repo, branch: deployment.branch });
+    if (preview && preview.containerName === containerName) {
+      stopAppContainer(containerName);
+      stopTunnel(preview.tunnel);
+      removePreview({ repo: deployment.repo, branch: deployment.branch });
+    }
+
+    liveBuilds.delete(id);
+    deleteDeployment(db, id);
+    res.json({ ok: true });
   });
 
   app.get("/api/deployments/:id/stream", (req, res) => {

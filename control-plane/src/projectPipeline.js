@@ -7,6 +7,7 @@ import { promote } from "./promote.js";
 import { registerPreview, getPreview } from "./previewRegistry.js";
 import { getDeploymentHistory } from "./deploymentHistory.js";
 import { setDeploymentUrl, markDeploymentProduction, appendDeploymentLog } from "./db.js";
+import { tryAcquireDeployLock, releaseDeployLock } from "./deployLock.js";
 
 const APP_PORT = 3000;
 
@@ -19,6 +20,20 @@ export function resolveAppPath({ cloneDir, rootDirectory }) {
 
 export function createProjectPushHandler({ db, liveBuilds, traefikContainerName, traefikApiUrl }) {
   return async (parsedPush, project) => {
+    // Two overlapping runs for the same repo+branch race on
+    // previewRegistry's single "current preview" slot: the second run's
+    // teardown-the-existing-preview step can kill the first run's still-
+    // live container/tunnel out from under it. Serialize per branch
+    // instead. Must be synchronous and first, before any await, so two
+    // back-to-back calls (e.g. double-clicking "Redeploy") can't both slip
+    // through.
+    if (!tryAcquireDeployLock({ repo: parsedPush.repo, branch: parsedPush.branch })) {
+      console.warn(
+        `Skipping deploy for ${parsedPush.repo}#${parsedPush.branch}: one is already in progress`,
+      );
+      return;
+    }
+
     let cloneDir;
     let build;
 
@@ -86,6 +101,7 @@ export function createProjectPushHandler({ db, liveBuilds, traefikContainerName,
       }
     } finally {
       if (cloneDir) cleanupClone(cloneDir);
+      releaseDeployLock({ repo: parsedPush.repo, branch: parsedPush.branch });
     }
   };
 }

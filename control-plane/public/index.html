@@ -4,6 +4,7 @@
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>Tugboat</title>
+<link rel="icon" type="image/svg+xml" href="/favicon.svg" />
 <link rel="preconnect" href="https://fonts.googleapis.com" />
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Geist+Mono:wght@400;500&display=swap" rel="stylesheet" />
@@ -88,7 +89,7 @@
   /* ---------- landing ---------- */
   .landing-hero {
     text-align: center;
-    padding: 140px 24px 100px;
+    padding: 130px 24px 56px;
     max-width: 720px;
     margin: 0 auto;
   }
@@ -120,30 +121,51 @@
     margin: 0 0 36px;
     line-height: 1.5;
   }
+  @media (max-width: 600px) {
+    .landing-hero { padding: 90px 20px 44px; }
+    .landing-hero h1 { font-size: 36px; }
+    .landing-hero p { font-size: 16px; margin-bottom: 28px; }
+    .features { margin-top: 90px; }
+  }
   .cta-row { display: flex; gap: 12px; justify-content: center; }
   .cta-row button { padding: 12px 22px; font-size: 15px; border-radius: 8px; }
   .gh-icon { width: 16px; height: 16px; vertical-align: -3px; margin-right: 8px; }
 
-  .features {
-    max-width: 960px;
-    margin: 0 auto;
-    padding: 0 24px 120px;
-    display: grid;
-    grid-template-columns: repeat(4, 1fr);
-    gap: 1px;
-    background: var(--border);
+  /* ---------- product mockup ---------- */
+  .mockup-wrap { max-width: 680px; margin: 8px auto 0; padding: 0 24px; }
+  .terminal {
+    background: #0c0c0c;
     border: 1px solid var(--border);
     border-radius: 12px;
     overflow: hidden;
+    box-shadow: 0 60px 120px -40px rgba(0,0,0,.7);
   }
-  @media (max-width: 860px) { .features { grid-template-columns: repeat(2, 1fr); } }
-  .feature {
-    background: var(--bg);
-    padding: 28px 22px;
-  }
-  .feature .f-icon { font-size: 22px; margin-bottom: 14px; }
-  .feature h3 { font-size: 14px; margin: 0 0 8px; font-weight: 600; }
-  .feature p { font-size: 13px; color: var(--text-dim); margin: 0; line-height: 1.5; }
+  .terminal-bar { display: flex; align-items: center; gap: 7px; padding: 13px 16px; border-bottom: 1px solid var(--border); }
+  .terminal-dot { width: 11px; height: 11px; border-radius: 50%; }
+  .terminal-dot.red { background: #ff5f56; }
+  .terminal-dot.yellow { background: #ffbd2e; }
+  .terminal-dot.green { background: #27c93f; }
+  .terminal-body { padding: 24px 26px 28px; font-family: var(--font-mono); font-size: 13px; line-height: 2; text-align: left; }
+  .t-prompt { color: #666; }
+  .t-cmd { color: var(--text); }
+  .t-out { color: var(--text-faint); }
+  .t-ok { color: var(--green); }
+  .t-tag { color: var(--text-faint); }
+  .t-url { color: var(--blue); }
+  .t-cursor { display: inline-block; width: 7px; height: 14px; background: var(--text-dim); margin-left: 3px; vertical-align: -2px; animation: t-blink 1s step-end infinite; }
+  @keyframes t-blink { 50% { opacity: 0; } }
+
+  /* ---------- feature list ---------- */
+  .features { max-width: 880px; margin: 150px auto 0; padding: 0 24px 130px; }
+  .features-head { text-align: center; margin-bottom: 60px; }
+  .features-eyebrow { font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: .1em; color: var(--text-faint); margin-bottom: 12px; }
+  .features-head h2 { font-size: 32px; font-weight: 700; letter-spacing: -0.02em; margin: 0; }
+  .feature-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 52px 64px; }
+  @media (max-width: 700px) { .feature-grid { grid-template-columns: 1fr; gap: 40px; } }
+  .feature { border-top: 1px solid var(--border); padding-top: 22px; }
+  .feature .f-index { font-family: var(--font-mono); font-size: 12px; color: var(--text-faint); display: block; margin-bottom: 16px; }
+  .feature h3 { font-size: 17px; margin: 0 0 9px; font-weight: 600; letter-spacing: -0.01em; }
+  .feature p { font-size: 14px; color: var(--text-dim); margin: 0; line-height: 1.65; max-width: 36ch; }
 
   .landing-footer {
     text-align: center;
@@ -226,6 +248,8 @@
   .dr-url { color: var(--blue); text-decoration: none; font-size: 12px; white-space: nowrap; }
   .dr-url:hover { text-decoration: underline; }
   .prod-tag { font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: .05em; color: #000; background: var(--text); padding: 2px 6px; border-radius: 4px; }
+  .dr-delete { background: none; border: none; padding: 4px 6px; font-size: 13px; color: var(--text-faint); opacity: .6; }
+  .dr-delete:hover { color: var(--red); opacity: 1; background: rgba(245,34,45,.1); border: none; }
 
   .log-panel { border-top: 1px solid var(--border); }
   pre.log {
@@ -372,28 +396,57 @@ function renderLanding() {
         <button class="primary" onclick="location.href='/auth/login'">${ICON_GH}Sign in with GitHub</button>
       </div>
     </div>
-    <div class="features">
-      <div class="feature">
-        <div class="f-icon">⚡</div>
-        <h3>Instant previews</h3>
-        <p>Every branch push gets a real, public URL within seconds — no config.</p>
-      </div>
-      <div class="feature">
-        <div class="f-icon">🔁</div>
-        <h3>Zero-downtime promotes</h3>
-        <p>Merging to your default branch blue-green swaps production with no dropped requests.</p>
-      </div>
-      <div class="feature">
-        <div class="f-icon">📜</div>
-        <h3>Live build logs</h3>
-        <p>Watch your build stream in real time, not just the final result.</p>
-      </div>
-      <div class="feature">
-        <div class="f-icon">↩️</div>
-        <h3>One-click rollback</h3>
-        <p>Something broke? Redeploy the previous image in one call.</p>
+
+    <div class="mockup-wrap">
+      <div class="terminal">
+        <div class="terminal-bar">
+          <span class="terminal-dot red"></span>
+          <span class="terminal-dot yellow"></span>
+          <span class="terminal-dot green"></span>
+        </div>
+        <div class="terminal-body">
+          <div><span class="t-prompt">$</span> <span class="t-cmd">git push origin main</span></div>
+          <div class="t-out">Enumerating objects, done.</div>
+          <div class="t-out">To github.com:you/your-app.git</div>
+          <div>&nbsp;</div>
+          <div class="t-ok">✓ Build complete <span class="t-tag">(paketobuildpacks · 18s)</span></div>
+          <div class="t-ok">✓ Routed <span class="t-tag">via Traefik, zero config</span></div>
+          <div class="t-ok">✓ Promoted to production <span class="t-tag">(0 dropped requests)</span></div>
+          <div>&nbsp;</div>
+          <div>Production: <a class="t-url" href="#">https://your-app.127.0.0.1.nip.io</a><span class="t-cursor"></span></div>
+        </div>
       </div>
     </div>
+
+    <div class="features">
+      <div class="features-head">
+        <div class="features-eyebrow">How it works</div>
+        <h2>Push. Tugboat does the rest.</h2>
+      </div>
+      <div class="feature-grid">
+        <div class="feature">
+          <span class="f-index">01</span>
+          <h3>Instant previews</h3>
+          <p>Every branch push gets a real, public URL within seconds — no config, no manual deploy step.</p>
+        </div>
+        <div class="feature">
+          <span class="f-index">02</span>
+          <h3>Zero-downtime promotes</h3>
+          <p>Merging to your default branch blue-green swaps production, verified with zero dropped requests.</p>
+        </div>
+        <div class="feature">
+          <span class="f-index">03</span>
+          <h3>Live build logs</h3>
+          <p>Watch pack build stream in real time as it happens — not just a spinner, then a result.</p>
+        </div>
+        <div class="feature">
+          <span class="f-index">04</span>
+          <h3>One-click rollback</h3>
+          <p>Something broke? Redeploy the previous image from real deployment history, in one call.</p>
+        </div>
+      </div>
+    </div>
+
     <div class="landing-footer">Tugboat — a self-hosted PaaS built on Buildpacks, Docker, Traefik &amp; Cloudflare Tunnel.</div>
   `;
 }
@@ -534,9 +587,21 @@ function deployRow(d) {
         </div>
         <div class="dr-time">${timeAgo(d.created_at)}</div>
         ${d.preview_url ? `<a class="dr-url" onclick="event.stopPropagation()" href="${d.preview_url}" target="_blank">Visit ↗</a>` : `<span class="badge ${d.status}">${d.status}</span>`}
+        ${d.is_production ? "" : `<button class="dr-delete" title="Delete deployment" onclick="event.stopPropagation(); deleteDeployment(${d.id})">🗑</button>`}
       </div>
       ${isOpen ? `<div class="log-panel"><pre class="log" id="pre-${d.id}">connecting…</pre></div>` : ""}
     </div>`;
+}
+
+async function deleteDeployment(id) {
+  if (!confirm("Delete this deployment? This also stops its preview container and tunnel if still running.")) return;
+  const res = await api(`/api/deployments/${id}`, { method: "DELETE" });
+  if (!res.ok) {
+    const err = await res.json();
+    alert(err.error || "Failed to delete deployment.");
+    return;
+  }
+  await loadProjects();
 }
 
 function toggleLog(id) {
@@ -562,7 +627,15 @@ function streamLog(id) {
 
 async function deployNow(repo, branch) {
   try {
-    await api(`/api/projects/${repo}/deploy`, { method: "POST", body: JSON.stringify({ branch }) });
+    const res = await api(`/api/projects/${repo}/deploy`, {
+      method: "POST",
+      body: JSON.stringify({ branch }),
+    });
+    if (!res.ok) {
+      const err = await res.json();
+      alert(err.error || "Failed to deploy.");
+      return;
+    }
     await loadProjects();
   } catch (err) {
     alert("Failed to deploy: " + err.message);

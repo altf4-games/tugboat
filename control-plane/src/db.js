@@ -105,6 +105,10 @@ export function getDeployment(db, id) {
   return db.prepare("SELECT * FROM deployments WHERE id = ?").get(id);
 }
 
+export function deleteDeployment(db, id) {
+  db.prepare("DELETE FROM deployments WHERE id = ?").run(id);
+}
+
 export function listDeployments(db, { repo } = {}) {
   if (repo) {
     return db
