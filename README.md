@@ -29,9 +29,7 @@ push → build → route → promote → rollback
 Every feature was built test-first against **real** infrastructure — a real
 `pack build`, a real Docker daemon, a real Traefik instance, a real GitHub
 webhook delivery, a real Cloudflare tunnel. Nothing is mocked and no data is
-seeded; see [CLAUDE.md](CLAUDE.md) for the full phase-by-phase build log and
-the reasoning behind that rule (not tracked in git — ask whoever set up your
-checkout for a copy if you need it).
+seeded.
 
 ## Project structure
 
