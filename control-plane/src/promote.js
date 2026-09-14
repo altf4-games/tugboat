@@ -2,6 +2,7 @@ import { execFileSync } from "node:child_process";
 import { NETWORK_NAME } from "./traefikController.js";
 import { writeProductionRoute } from "./productionRoute.js";
 import { sanitizeForDockerTag } from "./sanitize.js";
+import { recordDeployment } from "./deploymentHistory.js";
 
 export function startProductionContainer({ imageTag, port = 3000, containerName }) {
   execFileSync("docker", [
@@ -109,6 +110,8 @@ export async function promote({
     traefikApiUrl,
     expectedBackendUrl: `http://${containerName}:${port}`,
   });
+
+  recordDeployment({ repo, imageTag, containerName });
 
   if (previousContainerName) {
     try {
