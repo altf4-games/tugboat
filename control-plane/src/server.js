@@ -14,6 +14,7 @@ import {
   listProjects,
   deleteProject,
   setProjectHookId,
+  setProjectRootDirectory,
 } from "./db.js";
 import { createSession, getSession, destroySession } from "./session.js";
 import {
@@ -108,7 +109,7 @@ async function main() {
   app.use(express.static(path.join(__dirname, "../public")));
 
   function requireAuth(req, res, next) {
-    const user = getSession(parseCookies(req)[SESSION_COOKIE], SESSION_SECRET);
+    const user = getSession(db, parseCookies(req)[SESSION_COOKIE], SESSION_SECRET);
     if (!user) return res.status(401).json({ error: "not signed in" });
     req.user = user;
     next();
@@ -144,10 +145,18 @@ async function main() {
       const ghUser = await fetchGithubUser(token);
 
       const cookieValue = createSession(
+        db,
         { login: ghUser.login, avatarUrl: ghUser.avatar_url, token },
         SESSION_SECRET,
       );
-      res.cookie(SESSION_COOKIE, cookieValue, { httpOnly: true, sameSite: "lax" });
+      // Persisted in SQLite (see session.js) and long-lived, so neither a
+      // page reload nor a server restart during development forces
+      // signing in again.
+      res.cookie(SESSION_COOKIE, cookieValue, {
+        httpOnly: true,
+        sameSite: "lax",
+        maxAge: 30 * 24 * 60 * 60 * 1000,
+      });
       res.redirect("/");
     } catch (err) {
       res.status(500).send(`OAuth login failed: ${err.message}`);
@@ -155,7 +164,7 @@ async function main() {
   });
 
   app.post("/auth/logout", (req, res) => {
-    destroySession(parseCookies(req)[SESSION_COOKIE]);
+    destroySession(db, parseCookies(req)[SESSION_COOKIE]);
     res.setHeader("Set-Cookie", `${SESSION_COOKIE}=; HttpOnly; SameSite=Lax; Path=/; Max-Age=0`);
     res.json({ ok: true });
   });
@@ -278,6 +287,50 @@ async function main() {
 
     deleteProject(db, repo);
     res.json({ ok: true });
+  });
+
+  app.patch("/api/projects/:owner/:name", requireAuth, (req, res) => {
+    const repo = `${req.params.owner}/${req.params.name}`;
+    const project = getProjectByRepo(db, repo);
+    if (!project) return res.status(404).json({ error: "not linked" });
+
+    if (typeof req.body.rootDirectory === "string") {
+      setProjectRootDirectory(db, repo, req.body.rootDirectory.trim().replace(/^\/+|\/+$/g, ""));
+    }
+    res.json(getProjectByRepo(db, repo));
+  });
+
+  // Deploy on demand — the current HEAD of a branch, with no new commit
+  // needed. Reuses the exact same pipeline a real webhook push triggers:
+  // this just synthesizes the push event from GitHub's own "latest commit
+  // on this branch" API instead of waiting for one to arrive.
+  app.post("/api/projects/:owner/:name/deploy", requireAuth, async (req, res) => {
+    const repo = `${req.params.owner}/${req.params.name}`;
+    const project = getProjectByRepo(db, repo);
+    if (!project) return res.status(404).json({ error: "not linked" });
+
+    const branch = req.body?.branch || project.default_branch;
+
+    try {
+      const commitRes = await fetch(
+        `https://api.github.com/repos/${repo}/commits/${encodeURIComponent(branch)}`,
+        {
+          headers: {
+            Authorization: `Bearer ${req.user.token}`,
+            Accept: "application/vnd.github+json",
+          },
+        },
+      );
+      if (!commitRes.ok) {
+        return res.status(404).json({ error: `Branch not found: ${branch}` });
+      }
+      const commit = await commitRes.json();
+
+      pushHandler({ repo, branch, sha: commit.sha }, project);
+      res.json({ ok: true, branch, sha: commit.sha });
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
   });
 
   // --- deployments ---

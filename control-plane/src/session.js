@@ -1,18 +1,23 @@
 import crypto from "node:crypto";
 
-const sessions = new Map();
-
 function sign(value, secret) {
   return crypto.createHmac("sha256", secret).update(value).digest("hex");
 }
 
-export function createSession(data, secret) {
+// Sessions are persisted in SQLite (not an in-memory Map) specifically so a
+// server restart doesn't force everyone to sign in again — during local
+// development the server gets restarted a lot.
+export function createSession(db, data, secret) {
   const id = crypto.randomBytes(24).toString("hex");
-  sessions.set(id, data);
+  db.prepare("INSERT INTO sessions (id, data, created_at) VALUES (?, ?, ?)").run(
+    id,
+    JSON.stringify(data),
+    Date.now(),
+  );
   return `${id}.${sign(id, secret)}`;
 }
 
-export function getSession(cookieValue, secret) {
+export function getSession(db, cookieValue, secret) {
   if (!cookieValue) return null;
   const [id, signature] = cookieValue.split(".");
   if (!id || !signature) return null;
@@ -23,10 +28,11 @@ export function getSession(cookieValue, secret) {
     return null;
   }
 
-  return sessions.get(id) ?? null;
+  const row = db.prepare("SELECT data FROM sessions WHERE id = ?").get(id);
+  return row ? JSON.parse(row.data) : null;
 }
 
-export function destroySession(cookieValue) {
+export function destroySession(db, cookieValue) {
   const [id] = (cookieValue ?? "").split(".");
-  if (id) sessions.delete(id);
+  if (id) db.prepare("DELETE FROM sessions WHERE id = ?").run(id);
 }

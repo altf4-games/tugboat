@@ -56,6 +56,12 @@ export function openDb(dbPath = DEFAULT_DB_PATH) {
       root_directory TEXT NOT NULL DEFAULT '',
       created_at INTEGER NOT NULL
     );
+
+    CREATE TABLE IF NOT EXISTS sessions (
+      id TEXT PRIMARY KEY,
+      data TEXT NOT NULL,
+      created_at INTEGER NOT NULL
+    );
   `);
   migrateColumns(db);
   return db;
@@ -158,6 +164,10 @@ export function getProjectById(db, id) {
 
 export function setProjectHookId(db, id, hookId) {
   db.prepare("UPDATE projects SET hook_id = ? WHERE id = ?").run(hookId, id);
+}
+
+export function setProjectRootDirectory(db, repo, rootDirectory) {
+  db.prepare("UPDATE projects SET root_directory = ? WHERE repo = ?").run(rootDirectory, repo);
 }
 
 export function listProjects(db) {

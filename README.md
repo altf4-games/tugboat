@@ -34,20 +34,30 @@ seeded.
 ## The web app
 
 Beyond the pipeline itself, there's a real always-on control-plane server
-with a UI: sign in with GitHub, pick a repo from your account, click link —
-every push to that repo from then on gets built and deployed automatically,
-shown live on a dashboard.
+with a Vercel-style UI: sign in with GitHub, pick a repo from your account,
+click link — every push to that repo from then on gets built and deployed
+automatically, shown live on a dashboard.
 
-- **Sign in with GitHub** (real OAuth — redirects to github.com, you approve, you come back signed in)
-- **Link a repo** from a searchable list of your actual GitHub repos
-- Linking creates a **real webhook** on that repo, pointed at this server's own
-  public tunnel
+- **A landing page** when signed out, **sign in with GitHub** (real OAuth —
+  redirects to github.com, you approve, you come back signed in and stay
+  signed in — the session is stored in SQLite, so neither a page reload nor
+  restarting the server logs you out)
+- **Link a repo** from a searchable list of your actual GitHub repos, with an
+  optional **root directory** for monorepos (the app to build doesn't have to
+  live at the repo root — this repo itself is a real example: its buildable
+  app is in `sample-app/`)
+- Linking creates a **real webhook** on that repo, pointed at this server's
+  own public tunnel
 - Every push gets **a live build log** (streamed as it happens), then **a real
   public preview URL**
 - Pushing to the repo's default branch **promotes to production** (blue-green,
   zero dropped requests) automatically
-- Each project card expands into its deployment history — branch, commit,
-  status, and link
+- **Deploy on demand** — a "Redeploy" button builds and ships the current
+  `HEAD` of a branch without needing a new commit, the same way Vercel lets
+  you trigger a build without pushing
+- A project page lists its full deployment history (branch, commit, status,
+  live/expandable logs, preview link) and lets you change the root directory
+  or unlink the repo (which removes the webhook) after the fact
 
 Run it with:
 
@@ -66,6 +76,11 @@ a real, persistent webhook on it, which stays until you unlink the repo
 the server (`Ctrl+C`) cleanly tears down Traefik and its own tunnel, but
 linked repos' webhooks are left in place on purpose — restart the server and
 they keep working.
+
+Want something to link and push to right away, instead of using one of your
+own repos? [altf4-games/tugboat-cookie-clicker](https://github.com/altf4-games/tugboat-cookie-clicker)
+is a small real React + Vite app (a cookie-clicker game) built specifically
+as a Tugboat test target — link it, push a commit, watch it deploy.
 
 ## Project structure
 
@@ -95,7 +110,7 @@ scripts/          reserved for standalone CLI wrappers (currently unused — pro
 | `previewRegistry.js` / `onDeleteTeardown.js` | Tear down a branch's container, route, and tunnel on delete |
 | `resourceLimits.js` | Translate memory/CPU quotas into real `docker run` flags |
 | `db.js` | SQLite-backed deployment + linked-project history |
-| `dashboardServer.js` | Standalone build-log-streaming API used by the Phase 7 test (superseded by `server.js` for the real app) |
+| `dashboardServer.js` | Standalone build-log-streaming API, proven by its own test (superseded by `server.js` for the real app) |
 | `session.js` / `githubOAuth.js` | Signed cookie sessions and the real GitHub OAuth login flow |
 | `cloneRepo.js` | Clones a linked repo at the exact pushed commit (with token auth for private repos) |
 | `multiProjectWebhook.js` | Routes an incoming webhook to the right linked project by its own secret |
@@ -221,22 +236,22 @@ gh api repos/<owner>/<repo>/hooks   # check for and delete any leftover webhook
 
 ### Running a subset
 
-Each phase has its own test file, so you can run just the one you care about
-instead of the whole suite:
+Each capability has its own test file, so you can run just the one you care
+about instead of the whole suite:
 
 ```bash
-npx vitest run tests/phase0.pack-build.smoke.test.js   # Phase 0: build sanity check
-npx vitest run tests/webhook.integration.test.js        # Phase 1: webhook ingestion
-npx vitest run tests/build.integration.test.js           # Phase 2: push → build
-npx vitest run tests/traefik.integration.test.js         # Phase 3: auto-routing
-npx vitest run tests/tunnel.integration.test.js           # Phase 4: public links
-npx vitest run tests/promote.integration.test.js          # Phase 5: blue-green promote
-npx vitest run tests/rollback.integration.test.js          # Phase 6: rollback
-npx vitest run tests/dashboard.integration.test.js         # Phase 7: live log streaming
-npx vitest run tests/teardown.integration.test.js           # Phase 8: branch-delete teardown
-npx vitest run tests/resourceLimits.integration.test.js     # Phase 9: memory/CPU limits
-npx vitest run tests/cloneRepo.integration.test.js           # web app: clone a linked repo
-npx vitest run tests/multiProjectWebhook.integration.test.js # web app: per-project webhook routing
+npx vitest run tests/phase0.pack-build.smoke.test.js         # pack build sanity check
+npx vitest run tests/webhook.integration.test.js              # webhook ingestion
+npx vitest run tests/build.integration.test.js                 # push → build
+npx vitest run tests/traefik.integration.test.js                # auto-routing
+npx vitest run tests/tunnel.integration.test.js                  # public links
+npx vitest run tests/promote.integration.test.js                 # blue-green promote
+npx vitest run tests/rollback.integration.test.js                 # rollback
+npx vitest run tests/dashboard.integration.test.js                 # live log streaming
+npx vitest run tests/teardown.integration.test.js                   # branch-delete teardown
+npx vitest run tests/resourceLimits.integration.test.js              # memory/CPU limits
+npx vitest run tests/cloneRepo.integration.test.js                    # clone a linked repo
+npx vitest run tests/multiProjectWebhook.integration.test.js           # per-project webhook routing
 ```
 
 `*.unit.test.js` files (HMAC, payload parsing, label/route construction,
@@ -274,4 +289,36 @@ To watch a real buildpacks build happen:
 ```bash
 pack build tugboat/sample-app:manual --path sample-app --builder paketobuildpacks/builder-jammy-base --trust-builder
 docker run --rm -p 3000:3000 tugboat/sample-app:manual
+```
+
+## Cleaning up disk space afterward
+
+Every real `pack build` leaves behind a builder/run image pair (the
+`paketobuildpacks/builder-jammy-base` image alone is several GB) and a pair
+of named cache volumes per unique image tag. None of this is cleaned up
+automatically — by design, `pack` caches it so the *next* build of the same
+app is fast. Once you're done testing or demoing, reclaim it with:
+
+```bash
+# stop and remove every tugboat-related container (safe to run any time)
+docker ps -a --filter "name=tugboat" --format "{{.Names}}" | xargs -r docker rm -f
+
+# remove every image this project built or pulled
+docker rmi -f $(docker images --filter "reference=tugboat/*" -q) 2>/dev/null
+docker rmi -f traefik nginx:alpine node:20-alpine paketobuildpacks/builder-jammy-base paketobuildpacks/run-jammy-base 2>/dev/null
+
+# remove pack's per-build cache volumes — by far the biggest chunk of space.
+# docker volume prune alone only touches *anonymous* volumes; -a/--all is
+# required to also remove pack's named pack-cache-* volumes.
+docker volume prune -a -f
+
+# see what's left / confirm it's actually reclaimed
+docker system df
+```
+
+If you also want a completely fresh dashboard (no deployment or linked-project
+history) next time you run the web app:
+
+```bash
+rm -f control-plane/data/tugboat.db
 ```

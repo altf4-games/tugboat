@@ -16,6 +16,7 @@ import {
   getProjectByRepo,
   listProjects,
   deleteProject,
+  setProjectRootDirectory,
 } from "../src/db.js";
 
 describe("db (real SQLite via better-sqlite3)", () => {
@@ -182,5 +183,22 @@ describe("schema migration", () => {
     ).not.toThrow();
 
     expect(getProjectByRepo(db, "org/app").root_directory).toBe("sample-app");
+  });
+
+  it("updates a project's root directory after linking", () => {
+    const db = openDb(":memory:");
+    createProject(db, {
+      repo: "org/app",
+      ownerLogin: "org",
+      defaultBranch: "main",
+      cloneUrl: "https://github.com/org/app.git",
+      hookId: 1,
+      accessToken: "gho_fake",
+      webhookSecret: "secret",
+    });
+
+    setProjectRootDirectory(db, "org/app", "packages/web");
+
+    expect(getProjectByRepo(db, "org/app").root_directory).toBe("packages/web");
   });
 });
