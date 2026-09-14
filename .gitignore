@@ -1,5 +1,6 @@
 node_modules/
 .env
+control-plane/.env
 .DS_Store
 control-plane/data/*.db
 

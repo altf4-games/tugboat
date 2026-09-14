@@ -31,6 +31,42 @@ Every feature was built test-first against **real** infrastructure — a real
 webhook delivery, a real Cloudflare tunnel. Nothing is mocked and no data is
 seeded.
 
+## The web app
+
+Beyond the pipeline itself, there's a real always-on control-plane server
+with a UI: sign in with GitHub, pick a repo from your account, click link —
+every push to that repo from then on gets built and deployed automatically,
+shown live on a dashboard.
+
+- **Sign in with GitHub** (real OAuth — redirects to github.com, you approve, you come back signed in)
+- **Link a repo** from a searchable list of your actual GitHub repos
+- Linking creates a **real webhook** on that repo, pointed at this server's own
+  public tunnel
+- Every push gets **a live build log** (streamed as it happens), then **a real
+  public preview URL**
+- Pushing to the repo's default branch **promotes to production** (blue-green,
+  zero dropped requests) automatically
+- Each project card expands into its deployment history — branch, commit,
+  status, and link
+
+Run it with:
+
+```bash
+cd control-plane
+npm start
+```
+
+then open **http://localhost:4000**. See [Setup](#setup) below for the
+one-time GitHub OAuth App you need to register first (required for login;
+everything else needs no configuration).
+
+Unlike the test suite, this is meant to keep running: linking a repo creates
+a real, persistent webhook on it, which stays until you unlink the repo
+(from the UI) or delete it yourself from the repo's GitHub settings. Stopping
+the server (`Ctrl+C`) cleanly tears down Traefik and its own tunnel, but
+linked repos' webhooks are left in place on purpose — restart the server and
+they keep working.
+
 ## Project structure
 
 ```
@@ -58,7 +94,14 @@ scripts/          reserved for standalone CLI wrappers (currently unused — pro
 | `tunnelManager.js` / `cloudflaredUrl.js` | Spawn a `cloudflared` tunnel, parse its real assigned URL |
 | `previewRegistry.js` / `onDeleteTeardown.js` | Tear down a branch's container, route, and tunnel on delete |
 | `resourceLimits.js` | Translate memory/CPU quotas into real `docker run` flags |
-| `db.js` / `dashboardServer.js` | SQLite-backed deployment history with a live build-log stream (SSE) |
+| `db.js` | SQLite-backed deployment + linked-project history |
+| `dashboardServer.js` | Standalone build-log-streaming API used by the Phase 7 test (superseded by `server.js` for the real app) |
+| `session.js` / `githubOAuth.js` | Signed cookie sessions and the real GitHub OAuth login flow |
+| `cloneRepo.js` | Clones a linked repo at the exact pushed commit (with token auth for private repos) |
+| `multiProjectWebhook.js` | Routes an incoming webhook to the right linked project by its own secret |
+| `projectPipeline.js` | The real wiring: push → clone → build → route → tunnel → (promote if default branch) |
+| `server.js` | The actual app — starts Traefik, opens its own tunnel for GitHub to reach it, serves the UI and API |
+| `public/index.html` | The dashboard UI (vanilla JS, no build step) |
 
 ## Prerequisites
 
@@ -89,8 +132,27 @@ cd sample-app && npm install
 cd ../control-plane && npm install
 ```
 
-That's it — there's no `.env` or config file to fill in. Tests create their
-own throwaway secrets, ports, and container/branch names at runtime.
+The **test suite** needs no config — it creates its own throwaway secrets,
+ports, and container/branch names at runtime.
+
+The **web app** (`npm start`) needs one thing: a GitHub OAuth App, since
+that's the one piece GitHub doesn't expose an API for — it has to be created
+by hand, once:
+
+1. Go to <https://github.com/settings/developers> → OAuth Apps → New OAuth App
+2. Application name: anything (e.g. "Tugboat (local dev)")
+3. Homepage URL: `http://localhost:4000`
+4. Authorization callback URL: `http://localhost:4000/auth/callback`
+5. Register, then generate a client secret
+6. Copy `control-plane/.env.example` to `control-plane/.env` and fill in:
+
+   ```bash
+   GITHUB_CLIENT_ID=<from the app you just created>
+   GITHUB_CLIENT_SECRET=<the secret you just generated>
+   SESSION_SECRET=<any random string — the .env.example comment shows how to generate one>
+   ```
+
+`control-plane/.env` is git-ignored — the secret never leaves your machine.
 
 ## How to test this yourself
 
@@ -123,6 +185,16 @@ works:
   route, and tunnel are all actually gone
 - gives a container a 20MB memory limit, deliberately exceeds it, and
   confirms Docker's real OOM killer actually killed it
+- clones this repo for real, authenticated with a real access token, and
+  checks out the exact pushed commit
+- proves the multi-project webhook router accepts a project's own signed
+  request and rejects one signed with a different project's secret
+
+The interactive OAuth login itself (the actual "click Authorize on
+github.com" step) isn't part of the automated suite — that's a human
+granting consent, which is what OAuth is *for*; scripting around it isn't
+appropriate. Everything downstream of getting a token (webhook creation,
+cloning, building, deploying) is exercised for real by the suite above.
 
 Expect this to take **several minutes** (multiple real `pack build`s, real
 container startups, real network round-trips to GitHub and Cloudflare) —
@@ -163,6 +235,8 @@ npx vitest run tests/rollback.integration.test.js          # Phase 6: rollback
 npx vitest run tests/dashboard.integration.test.js         # Phase 7: live log streaming
 npx vitest run tests/teardown.integration.test.js           # Phase 8: branch-delete teardown
 npx vitest run tests/resourceLimits.integration.test.js     # Phase 9: memory/CPU limits
+npx vitest run tests/cloneRepo.integration.test.js           # web app: clone a linked repo
+npx vitest run tests/multiProjectWebhook.integration.test.js # web app: per-project webhook routing
 ```
 
 `*.unit.test.js` files (HMAC, payload parsing, label/route construction,

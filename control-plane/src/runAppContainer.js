@@ -29,6 +29,11 @@ export function runAppContainer({
     NETWORK_NAME,
     "--name",
     containerName,
+    // Real PaaS platforms (Heroku, Railway, Render) all pass PORT and
+    // require the app to bind to it; do the same so an arbitrary linked
+    // repo that reads process.env.PORT works without extra config.
+    "-e",
+    `PORT=${port}`,
     ...publishArgs,
     ...resourceArgs,
     ...labelArgs,

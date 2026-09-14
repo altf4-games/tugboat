@@ -16,8 +16,22 @@ export function openDb(dbPath = DEFAULT_DB_PATH) {
       image_tag TEXT,
       status TEXT NOT NULL DEFAULT 'building',
       log TEXT NOT NULL DEFAULT '',
+      preview_url TEXT,
+      is_production INTEGER NOT NULL DEFAULT 0,
       created_at INTEGER NOT NULL
-    )
+    );
+
+    CREATE TABLE IF NOT EXISTS projects (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      repo TEXT NOT NULL UNIQUE,
+      owner_login TEXT NOT NULL,
+      default_branch TEXT NOT NULL,
+      clone_url TEXT NOT NULL,
+      hook_id INTEGER,
+      access_token TEXT NOT NULL,
+      webhook_secret TEXT NOT NULL,
+      created_at INTEGER NOT NULL
+    );
   `);
   return db;
 }
@@ -48,10 +62,63 @@ export function setDeploymentStatus(db, id, status, { imageTag } = {}) {
   }
 }
 
+export function setDeploymentUrl(db, id, previewUrl) {
+  db.prepare("UPDATE deployments SET preview_url = ? WHERE id = ?").run(previewUrl, id);
+}
+
+export function markDeploymentProduction(db, id) {
+  db.prepare("UPDATE deployments SET is_production = 1 WHERE id = ?").run(id);
+}
+
 export function getDeployment(db, id) {
   return db.prepare("SELECT * FROM deployments WHERE id = ?").get(id);
 }
 
-export function listDeployments(db) {
+export function listDeployments(db, { repo } = {}) {
+  if (repo) {
+    return db
+      .prepare("SELECT * FROM deployments WHERE repo = ? ORDER BY created_at DESC, id DESC")
+      .all(repo);
+  }
   return db.prepare("SELECT * FROM deployments ORDER BY created_at DESC, id DESC").all();
+}
+
+export function createProject(
+  db,
+  { repo, ownerLogin, defaultBranch, cloneUrl, hookId, accessToken, webhookSecret },
+) {
+  const result = db
+    .prepare(
+      `INSERT INTO projects (repo, owner_login, default_branch, clone_url, hook_id, access_token, webhook_secret, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+       ON CONFLICT(repo) DO UPDATE SET
+         owner_login = excluded.owner_login,
+         default_branch = excluded.default_branch,
+         clone_url = excluded.clone_url,
+         hook_id = excluded.hook_id,
+         access_token = excluded.access_token,
+         webhook_secret = excluded.webhook_secret`,
+    )
+    .run(repo, ownerLogin, defaultBranch, cloneUrl, hookId, accessToken, webhookSecret, Date.now());
+  return getProjectByRepo(db, repo).id ?? result.lastInsertRowid;
+}
+
+export function getProjectByRepo(db, repo) {
+  return db.prepare("SELECT * FROM projects WHERE repo = ?").get(repo);
+}
+
+export function getProjectById(db, id) {
+  return db.prepare("SELECT * FROM projects WHERE id = ?").get(id);
+}
+
+export function setProjectHookId(db, id, hookId) {
+  db.prepare("UPDATE projects SET hook_id = ? WHERE id = ?").run(hookId, id);
+}
+
+export function listProjects(db) {
+  return db.prepare("SELECT * FROM projects ORDER BY created_at DESC").all();
+}
+
+export function deleteProject(db, repo) {
+  db.prepare("DELETE FROM projects WHERE repo = ?").run(repo);
 }
