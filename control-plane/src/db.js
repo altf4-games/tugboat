@@ -241,6 +241,10 @@ export function listWebhookDeliveries(db, { repo, limit = 20 } = {}) {
     .all(repo, limit);
 }
 
+export function deleteWebhookDeliveriesByRepo(db, repo) {
+  db.prepare("DELETE FROM webhook_deliveries WHERE repo = ?").run(repo);
+}
+
 export function listProjects(db) {
   return db.prepare("SELECT * FROM projects ORDER BY created_at DESC").all();
 }

@@ -6,7 +6,7 @@ import { stopTunnel } from "./tunnelManager.js";
 import { takeAllPreviewsForRepo } from "./previewRegistry.js";
 import { clearProductionRoute } from "./productionRoute.js";
 import { clearDeploymentHistory } from "./deploymentHistory.js";
-import { listDeployments, deleteDeploymentsByRepo } from "./db.js";
+import { listDeployments, deleteDeploymentsByRepo, deleteWebhookDeliveriesByRepo } from "./db.js";
 import { screenshotPathFor } from "./screenshot.js";
 
 function dockerNamesMatching(kind, prefix) {
@@ -57,12 +57,26 @@ function dockerVolumeNamesMatching(substr) {
 // built images, no pack build cache — otherwise disk usage only ever grows
 // across every repo someone links and unlinks.
 export function cleanupRepo({ db, repo, traefikContainerName, liveBuilds }) {
+  // The live-tunnel half of a preview (the cloudflared subprocess) is only
+  // known to the currently-running server's in-memory registry — if this
+  // runs against a stopped server (or the registry was never populated,
+  // e.g. after a restart), that's empty and nothing here gets torn down.
   for (const preview of takeAllPreviewsForRepo(repo)) {
     stopAppContainer(preview.containerName);
     if (preview.tunnel) stopTunnel(preview.tunnel);
   }
 
   const sanitized = sanitizeForDockerTag(repo);
+  const deployments = listDeployments(db, { repo });
+
+  // Container names are deterministic from the deployment id
+  // (tugboat-preview-<id>), so sweep by name too — this is what actually
+  // catches a leftover preview container when the registry above was
+  // empty, since the container itself doesn't disappear just because the
+  // process that registered it did.
+  for (const deployment of deployments) {
+    stopAppContainer(`tugboat-preview-${deployment.id}`);
+  }
 
   const productionContainers = dockerNamesMatching("ps", `tugboat-production-${sanitized}-`);
   for (const name of productionContainers) {
@@ -80,12 +94,12 @@ export function cleanupRepo({ db, repo, traefikContainerName, liveBuilds }) {
 
   clearDeploymentHistory({ repo });
 
-  const deployments = listDeployments(db, { repo });
   for (const deployment of deployments) {
     fs.rmSync(screenshotPathFor(deployment.id), { force: true });
     liveBuilds?.delete(deployment.id);
   }
   deleteDeploymentsByRepo(db, repo);
+  deleteWebhookDeliveriesByRepo(db, repo);
 
   for (const imageTag of dockerImageTagsMatching(`tugboat/${sanitized}`)) {
     try {
