@@ -262,7 +262,7 @@ function projectCard(p) {
         <div>
           <div class="project-repo">${p.repo}</div>
           <div class="project-meta">
-            default branch: ${p.defaultBranch}
+            default branch: ${p.defaultBranch}${p.rootDirectory ? ` · root: ${p.rootDirectory}` : ""}
             ${production ? ` · production: <a class="link" onclick="event.stopPropagation()" href="${production.preview_url}" target="_blank">${production.preview_url}</a>` : ""}
           </div>
         </div>
@@ -335,8 +335,12 @@ async function loadProjects() {
   renderProjects();
 }
 
+let selectedRepo = null;
+
 async function openLinkModal() {
+  selectedRepo = null;
   document.getElementById("linkModal").classList.add("open");
+  document.getElementById("repoSearch").style.display = "block";
   document.getElementById("repoList").innerHTML = `<div class="hint" style="padding:10px;">Loading your repos...</div>`;
   const res = await api("/api/repos");
   repos = await res.json();
@@ -345,15 +349,19 @@ async function openLinkModal() {
 
 function closeLinkModal() {
   document.getElementById("linkModal").classList.remove("open");
+  selectedRepo = null;
 }
 
 function renderRepoList() {
+  if (selectedRepo) return renderLinkConfirm();
+
+  document.getElementById("repoSearch").style.display = "block";
   const q = (document.getElementById("repoSearch").value || "").toLowerCase();
   const filtered = repos.filter((r) => r.fullName.toLowerCase().includes(q));
   document.getElementById("repoList").innerHTML = filtered
     .map(
       (r) => `
-      <div class="repo-item" onclick="linkRepo('${r.fullName}')">
+      <div class="repo-item" onclick="selectRepo('${r.fullName}')">
         <span class="name">${r.fullName}</span>
         ${r.private ? '<span class="hint">private</span>' : ""}
       </div>`,
@@ -361,12 +369,40 @@ function renderRepoList() {
     .join("") || `<div class="hint" style="padding:10px;">No matching repos.</div>`;
 }
 
-async function linkRepo(fullName) {
-  document.getElementById("repoList").innerHTML = `<div class="hint" style="padding:10px;">Linking ${fullName}...</div>`;
-  const res = await api("/api/projects", { method: "POST", body: JSON.stringify({ repo: fullName }) });
+function selectRepo(fullName) {
+  selectedRepo = fullName;
+  document.getElementById("repoSearch").style.display = "none";
+  renderLinkConfirm();
+}
+
+function renderLinkConfirm() {
+  document.getElementById("repoList").innerHTML = `
+    <div style="padding: 4px 10px 14px;">
+      <div class="project-repo" style="margin-bottom: 4px;">${selectedRepo}</div>
+      <p class="hint" style="margin: 0 0 12px;">
+        Root directory (optional) — where the app to build actually lives in
+        this repo. Leave blank if it's at the repo root.
+      </p>
+      <input type="text" id="rootDirInput" placeholder="e.g. sample-app" style="margin: 0 0 12px; width: 100%;" />
+      <div style="display:flex; gap:8px;">
+        <button class="primary" onclick="confirmLink()">Link repo</button>
+        <button onclick="selectedRepo=null; renderRepoList();">Back</button>
+      </div>
+    </div>`;
+}
+
+async function confirmLink() {
+  const rootDirectory = document.getElementById("rootDirInput").value.trim();
+  document.getElementById("repoList").innerHTML = `<div class="hint" style="padding:10px;">Linking ${selectedRepo}...</div>`;
+  const res = await api("/api/projects", {
+    method: "POST",
+    body: JSON.stringify({ repo: selectedRepo, rootDirectory }),
+  });
   if (!res.ok) {
     const err = await res.json();
     alert("Failed to link repo: " + err.error);
+    selectedRepo = null;
+    renderRepoList();
     return;
   }
   closeLinkModal();

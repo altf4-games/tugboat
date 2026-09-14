@@ -188,13 +188,14 @@ async function main() {
         repo: p.repo,
         ownerLogin: p.owner_login,
         defaultBranch: p.default_branch,
+        rootDirectory: p.root_directory,
         createdAt: p.created_at,
       })),
     );
   });
 
   app.post("/api/projects", requireAuth, async (req, res) => {
-    const { repo } = req.body;
+    const { repo, rootDirectory } = req.body;
     if (!repo || !repo.includes("/")) {
       return res.status(400).json({ error: "repo must be like owner/name" });
     }
@@ -225,6 +226,7 @@ async function main() {
         hookId: null,
         accessToken: req.user.token,
         webhookSecret,
+        rootDirectory: (rootDirectory || "").trim().replace(/^\/+|\/+$/g, ""),
       });
 
       const webhookUrl = `${publicUrl}/webhook/github/${projectId}`;

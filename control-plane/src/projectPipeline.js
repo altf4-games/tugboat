@@ -1,3 +1,4 @@
+import path from "node:path";
 import { buildWithLogging } from "./buildWithLogging.js";
 import { cloneRepoAtSha, cleanupClone } from "./cloneRepo.js";
 import { runAppContainer, stopAppContainer } from "./runAppContainer.js";
@@ -8,6 +9,13 @@ import { getDeploymentHistory } from "./deploymentHistory.js";
 import { setDeploymentUrl, markDeploymentProduction, appendDeploymentLog } from "./db.js";
 
 const APP_PORT = 3000;
+
+// Supports monorepos the same way Vercel/Railway do: a project can name a
+// subdirectory of the repo as where its actual app lives, instead of
+// assuming the buildable app is always at the repo root.
+export function resolveAppPath({ cloneDir, rootDirectory }) {
+  return rootDirectory ? path.join(cloneDir, rootDirectory) : cloneDir;
+}
 
 export function createProjectPushHandler({ db, liveBuilds, traefikContainerName, traefikApiUrl }) {
   return async (parsedPush, project) => {
@@ -22,11 +30,13 @@ export function createProjectPushHandler({ db, liveBuilds, traefikContainerName,
         sha: parsedPush.sha,
       });
 
+      const appPath = resolveAppPath({ cloneDir, rootDirectory: project.root_directory });
+
       build = buildWithLogging(db, {
         repo: parsedPush.repo,
         branch: parsedPush.branch,
         sha: parsedPush.sha,
-        appPath: cloneDir,
+        appPath,
       });
       liveBuilds.set(build.id, build.emitter);
 

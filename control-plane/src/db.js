@@ -30,6 +30,7 @@ export function openDb(dbPath = DEFAULT_DB_PATH) {
       hook_id INTEGER,
       access_token TEXT NOT NULL,
       webhook_secret TEXT NOT NULL,
+      root_directory TEXT NOT NULL DEFAULT '',
       created_at INTEGER NOT NULL
     );
   `);
@@ -85,21 +86,41 @@ export function listDeployments(db, { repo } = {}) {
 
 export function createProject(
   db,
-  { repo, ownerLogin, defaultBranch, cloneUrl, hookId, accessToken, webhookSecret },
+  {
+    repo,
+    ownerLogin,
+    defaultBranch,
+    cloneUrl,
+    hookId,
+    accessToken,
+    webhookSecret,
+    rootDirectory = "",
+  },
 ) {
   const result = db
     .prepare(
-      `INSERT INTO projects (repo, owner_login, default_branch, clone_url, hook_id, access_token, webhook_secret, created_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+      `INSERT INTO projects (repo, owner_login, default_branch, clone_url, hook_id, access_token, webhook_secret, root_directory, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
        ON CONFLICT(repo) DO UPDATE SET
          owner_login = excluded.owner_login,
          default_branch = excluded.default_branch,
          clone_url = excluded.clone_url,
          hook_id = excluded.hook_id,
          access_token = excluded.access_token,
-         webhook_secret = excluded.webhook_secret`,
+         webhook_secret = excluded.webhook_secret,
+         root_directory = excluded.root_directory`,
     )
-    .run(repo, ownerLogin, defaultBranch, cloneUrl, hookId, accessToken, webhookSecret, Date.now());
+    .run(
+      repo,
+      ownerLogin,
+      defaultBranch,
+      cloneUrl,
+      hookId,
+      accessToken,
+      webhookSecret,
+      rootDirectory,
+      Date.now(),
+    );
   return getProjectByRepo(db, repo).id ?? result.lastInsertRowid;
 }
 
