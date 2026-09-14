@@ -1,10 +1,9 @@
 import { spawn } from "node:child_process";
+import { sanitizeForDockerTag } from "./sanitize.js";
 
 const DEFAULT_BUILDER = "paketobuildpacks/builder-jammy-base";
 
-export function sanitizeForDockerTag(value) {
-  return value.toLowerCase().replace(/[^a-z0-9._-]/g, "-");
-}
+export { sanitizeForDockerTag };
 
 export function imageTagFor({ repo, sha }) {
   return `tugboat/${sanitizeForDockerTag(repo)}:${sha}`;
