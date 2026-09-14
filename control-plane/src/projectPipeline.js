@@ -9,6 +9,7 @@ import { getDeploymentHistory } from "./deploymentHistory.js";
 import { setDeploymentUrl, markDeploymentProduction, appendDeploymentLog, parseProjectEnvVars } from "./db.js";
 import { tryAcquireDeployLock, releaseDeployLock } from "./deployLock.js";
 import { captureScreenshot } from "./screenshot.js";
+import { waitForDnsReady } from "./dnsReachability.js";
 
 export const APP_PORT = 3000;
 
@@ -81,6 +82,18 @@ export function createProjectPushHandler({ db, liveBuilds, traefikContainerName,
 
       const tunnel = startTunnel({ localPort: Number(hostPort) });
       const tunnelUrl = await tunnel.url;
+
+      // cloudflared reports the URL the moment the tunnel registers, but
+      // the *.trycloudflare.com subdomain can take a while to actually
+      // become resolvable — wait for that before handing the link out or
+      // trying to screenshot it, so we don't hand out a dead-looking link.
+      await waitForDnsReady(new URL(tunnelUrl).hostname).catch((err) => {
+        appendDeploymentLog(
+          db,
+          build.id,
+          `\n[tugboat] warning: ${tunnelUrl} may not be reachable yet: ${err.message}\n`,
+        );
+      });
 
       setDeploymentUrl(db, build.id, tunnelUrl);
       registerPreview({
