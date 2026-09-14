@@ -77,11 +77,7 @@
     border-bottom: 1px solid var(--border);
   }
   .logo { display: flex; align-items: center; gap: 9px; font-weight: 700; font-size: 16px; cursor: pointer; letter-spacing: -0.01em; }
-  .logo-mark {
-    width: 22px; height: 22px;
-    background: var(--text);
-    clip-path: polygon(50% 0%, 100% 100%, 0% 100%);
-  }
+  .logo-mark { display: block; }
   .nav-user { display: flex; align-items: center; gap: 12px; }
   .nav-user img { width: 26px; height: 26px; border-radius: 50%; }
   .nav-user-name { font-size: 13px; color: var(--text-dim); }
@@ -383,7 +379,7 @@ function render() {
 function renderLanding() {
   return `
     <nav class="topnav">
-      <div class="logo"><span class="logo-mark"></span> Tugboat</div>
+      <div class="logo"><svg class="logo-mark" width="22" height="22" viewBox="0 0 22 22"><polygon points="11,0 22,22 0,22" fill="currentColor"/></svg> Tugboat</div>
       <button class="primary" onclick="location.href='/auth/login'">${ICON_GH}Sign in with GitHub</button>
     </nav>
     <div class="landing-hero">
@@ -456,7 +452,7 @@ function renderLanding() {
 function renderNav() {
   return `
     <nav class="topnav">
-      <div class="logo" onclick="goHome()"><span class="logo-mark"></span> Tugboat</div>
+      <div class="logo" onclick="goHome()"><svg class="logo-mark" width="22" height="22" viewBox="0 0 22 22"><polygon points="11,0 22,22 0,22" fill="currentColor"/></svg> Tugboat</div>
       <div class="nav-user">
         <span class="nav-user-name">${me.login}</span>
         <img src="${me.avatarUrl}" alt="" />
@@ -659,7 +655,16 @@ async function loadProjects() {
       deploymentsByRepo[p.repo] = await r.json();
     }),
   );
-  render();
+  // While a log panel is open, its <pre> is being written into by a live
+  // EventSource. A full re-render replaces that DOM node with a fresh
+  // "connecting…" placeholder and orphans the stream (it keeps writing
+  // into the now-detached old node), which is why logs used to appear to
+  // freeze on "connecting…" a few seconds in — this poll runs every 4s.
+  // Keep the underlying data fresh, but skip the DOM rebuild while a log
+  // is open; it'll reflect the latest data as soon as the panel closes.
+  if (!(view === "project" && openDeployId !== null)) {
+    render();
+  }
 }
 
 /* ---------------- link modal ---------------- */

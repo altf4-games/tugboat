@@ -82,6 +82,18 @@ own repos? [altf4-games/tugboat-cookie-clicker](https://github.com/altf4-games/t
 is a small real React + Vite app (a cookie-clicker game) built specifically
 as a Tugboat test target — link it, push a commit, watch it deploy.
 
+<p align="center">
+  <img src="docs/screenshots/landing.png" alt="Tugboat landing page" width="800" />
+</p>
+
+<p align="center">
+  <img src="docs/screenshots/dashboard.png" alt="Tugboat project dashboard" width="800" />
+</p>
+
+<p align="center">
+  <img src="docs/screenshots/project-detail.png" alt="Tugboat project detail view with live deployment logs" width="800" />
+</p>
+
 ## Project structure
 
 ```
