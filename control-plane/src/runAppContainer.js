@@ -1,6 +1,7 @@
 import { execFileSync } from "node:child_process";
 import { traefikLabelsFor } from "./dockerLabels.js";
 import { NETWORK_NAME } from "./traefikController.js";
+import { dockerResourceArgs } from "./resourceLimits.js";
 
 export function runAppContainer({
   imageTag,
@@ -9,6 +10,9 @@ export function runAppContainer({
   port = 3000,
   containerName,
   publishPort = false,
+  memoryLimit,
+  cpuLimit,
+  command = [],
 }) {
   const labels = traefikLabelsFor({ repo, branch, port });
   const labelArgs = Object.entries(labels).flatMap(([key, value]) => [
@@ -16,6 +20,7 @@ export function runAppContainer({
     `${key}=${value}`,
   ]);
   const publishArgs = publishPort ? ["-p", `0:${port}`] : [];
+  const resourceArgs = dockerResourceArgs({ memoryLimit, cpuLimit });
 
   execFileSync("docker", [
     "run",
@@ -25,8 +30,10 @@ export function runAppContainer({
     "--name",
     containerName,
     ...publishArgs,
+    ...resourceArgs,
     ...labelArgs,
     imageTag,
+    ...command,
   ]);
 
   if (!publishPort) {
