@@ -1,8 +1,9 @@
 import express from "express";
 import { verifyGithubSignature } from "./hmac.js";
 import { parsePushEvent } from "./pushEvent.js";
+import { parseDeleteEvent } from "./deleteEvent.js";
 
-export function createWebhookServer({ secret, onPush }) {
+export function createWebhookServer({ secret, onPush, onDelete }) {
   const app = express();
   app.use(express.raw({ type: "application/json", limit: "10mb" }));
 
@@ -14,12 +15,15 @@ export function createWebhookServer({ secret, onPush }) {
     }
 
     const event = req.get("X-GitHub-Event");
-    if (event !== "push") {
+    const payload = event === "push" || event === "delete" ? JSON.parse(req.body.toString("utf8")) : null;
+
+    if (event === "push") {
+      onPush(parsePushEvent(payload), payload);
+    } else if (event === "delete" && onDelete) {
+      onDelete(parseDeleteEvent(payload), payload);
+    } else {
       return res.status(202).send("ignored");
     }
-
-    const payload = JSON.parse(req.body.toString("utf8"));
-    onPush(parsePushEvent(payload), payload);
 
     res.status(200).send("ok");
   });
