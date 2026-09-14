@@ -1,4 +1,8 @@
 import { describe, it, expect } from "vitest";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
+import Database from "better-sqlite3";
 import {
   openDb,
   createDeployment,
@@ -138,5 +142,45 @@ describe("projects", () => {
 
     deleteProject(db, "org/app");
     expect(getProjectByRepo(db, "org/app")).toBeUndefined();
+  });
+});
+
+describe("schema migration", () => {
+  it("adds a column that didn't exist yet to a real, already-created database file", () => {
+    const dbPath = path.join(fs.mkdtempSync(path.join(os.tmpdir(), "tugboat-db-")), "old.db");
+
+    // Simulate a database created before root_directory existed, by
+    // creating the projects table with the old, narrower schema directly.
+    const legacyDb = new Database(dbPath);
+    legacyDb.exec(`
+      CREATE TABLE projects (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        repo TEXT NOT NULL UNIQUE,
+        owner_login TEXT NOT NULL,
+        default_branch TEXT NOT NULL,
+        clone_url TEXT NOT NULL,
+        hook_id INTEGER,
+        access_token TEXT NOT NULL,
+        webhook_secret TEXT NOT NULL,
+        created_at INTEGER NOT NULL
+      )
+    `);
+    legacyDb.close();
+
+    const db = openDb(dbPath);
+    expect(() =>
+      createProject(db, {
+        repo: "org/app",
+        ownerLogin: "org",
+        defaultBranch: "main",
+        cloneUrl: "https://github.com/org/app.git",
+        hookId: null,
+        accessToken: "gho_fake",
+        webhookSecret: "secret",
+        rootDirectory: "sample-app",
+      }),
+    ).not.toThrow();
+
+    expect(getProjectByRepo(db, "org/app").root_directory).toBe("sample-app");
   });
 });

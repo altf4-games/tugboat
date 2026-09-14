@@ -5,6 +5,29 @@ import { fileURLToPath } from "node:url";
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 export const DEFAULT_DB_PATH = path.resolve(__dirname, "../data/tugboat.db");
 
+// Columns added after a table's original CREATE TABLE shipped. Listed here
+// so an existing database file (from before the column existed) gets
+// migrated forward instead of erroring with "no such column" — CREATE
+// TABLE IF NOT EXISTS only handles brand-new databases, not evolving ones.
+const COLUMN_MIGRATIONS = {
+  deployments: [
+    ["preview_url", "TEXT"],
+    ["is_production", "INTEGER NOT NULL DEFAULT 0"],
+  ],
+  projects: [["root_directory", "TEXT NOT NULL DEFAULT ''"]],
+};
+
+function migrateColumns(db) {
+  for (const [table, columns] of Object.entries(COLUMN_MIGRATIONS)) {
+    const existing = new Set(db.prepare(`PRAGMA table_info(${table})`).all().map((c) => c.name));
+    for (const [name, definition] of columns) {
+      if (!existing.has(name)) {
+        db.exec(`ALTER TABLE ${table} ADD COLUMN ${name} ${definition}`);
+      }
+    }
+  }
+}
+
 export function openDb(dbPath = DEFAULT_DB_PATH) {
   const db = new Database(dbPath);
   db.exec(`
@@ -34,6 +57,7 @@ export function openDb(dbPath = DEFAULT_DB_PATH) {
       created_at INTEGER NOT NULL
     );
   `);
+  migrateColumns(db);
   return db;
 }
 
