@@ -3,8 +3,17 @@ import { NETWORK_NAME } from "./traefikController.js";
 import { writeProductionRoute } from "./productionRoute.js";
 import { sanitizeForDockerTag } from "./sanitize.js";
 import { recordDeployment } from "./deploymentHistory.js";
+import { dockerResourceArgs } from "./resourceLimits.js";
+import { envArgsFor } from "./runAppContainer.js";
 
-export function startProductionContainer({ imageTag, port = 3000, containerName }) {
+export function startProductionContainer({
+  imageTag,
+  port = 3000,
+  containerName,
+  memoryLimit,
+  cpuLimit,
+  envVars,
+}) {
   execFileSync("docker", [
     "run",
     "-d",
@@ -14,6 +23,8 @@ export function startProductionContainer({ imageTag, port = 3000, containerName 
     containerName,
     "-p",
     `0:${port}`,
+    ...envArgsFor(envVars),
+    ...dockerResourceArgs({ memoryLimit, cpuLimit }),
     imageTag,
   ]);
 
@@ -87,9 +98,19 @@ export async function promote({
   traefikContainerName,
   traefikApiUrl,
   previousContainerName,
+  memoryLimit,
+  cpuLimit,
+  envVars,
 }) {
   const containerName = `tugboat-production-${sanitizeForDockerTag(repo)}-${Date.now()}`;
-  const { hostPort } = startProductionContainer({ imageTag, port, containerName });
+  const { hostPort } = startProductionContainer({
+    imageTag,
+    port,
+    containerName,
+    memoryLimit,
+    cpuLimit,
+    envVars,
+  });
 
   // Confirmed healthy directly (bypassing Traefik) before it's ever made
   // reachable through the production route at all.

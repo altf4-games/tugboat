@@ -16,6 +16,14 @@ import {
   deleteProject,
   setProjectHookId,
   setProjectRootDirectory,
+  setProjectEnvVars,
+  parseProjectEnvVars,
+  setProjectResourceLimits,
+  recordWebhookDelivery,
+  listWebhookDeliveries,
+  clearProductionFlag,
+  getDeploymentByImageTag,
+  markDeploymentProduction,
 } from "./db.js";
 import { createSession, getSession, destroySession } from "./session.js";
 import {
@@ -25,13 +33,17 @@ import {
   fetchGithubRepos,
 } from "./githubOAuth.js";
 import { createMultiProjectWebhookRouter } from "./multiProjectWebhook.js";
-import { createProjectPushHandler } from "./projectPipeline.js";
-import { isDeployInFlight } from "./deployLock.js";
+import { createProjectPushHandler, APP_PORT } from "./projectPipeline.js";
+import { isDeployInFlight, tryAcquireDeployLock, releaseDeployLock } from "./deployLock.js";
 import { createDeleteTeardownHandler } from "./onDeleteTeardown.js";
 import { ensureNetwork, startTraefik, stopTraefik } from "./traefikController.js";
 import { startTunnel, stopTunnel } from "./tunnelManager.js";
 import { stopAppContainer } from "./runAppContainer.js";
 import { getPreview, removePreview } from "./previewRegistry.js";
+import { rollback } from "./rollback.js";
+import { getDeploymentHistory } from "./deploymentHistory.js";
+import { screenshotPathFor } from "./screenshot.js";
+import { cleanupRepo } from "./repoCleanup.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -98,7 +110,7 @@ async function main() {
     traefikContainerName: TRAEFIK_CONTAINER_NAME,
     traefikApiUrl,
   });
-  const deleteHandler = createDeleteTeardownHandler();
+  const deleteHandler = createDeleteTeardownHandler(db);
 
   app.use(
     "/webhook",
@@ -106,6 +118,8 @@ async function main() {
       getProjectById: (id) => getProjectById(db, id),
       onPush: (parsed, project) => pushHandler(parsed, project),
       onDelete: (parsed, project) => deleteHandler(parsed),
+      onDelivery: ({ project, event, deliveryId, status, detail }) =>
+        recordWebhookDelivery(db, { projectId: project.id, repo: project.repo, event, deliveryId, status, detail }),
     }),
   );
 
@@ -202,6 +216,9 @@ async function main() {
         ownerLogin: p.owner_login,
         defaultBranch: p.default_branch,
         rootDirectory: p.root_directory,
+        envVars: parseProjectEnvVars(p),
+        memoryLimit: p.memory_limit,
+        cpuLimit: p.cpu_limit,
         createdAt: p.created_at,
       })),
     );
@@ -269,6 +286,23 @@ async function main() {
       setProjectHookId(db, projectId, hook.id);
 
       res.json({ id: projectId, repo: repoInfo.full_name });
+
+      // Linking a project should behave like Vercel's "import" flow: kick
+      // off a real first deploy immediately, instead of waiting for the
+      // user's next push. Fire-and-forget — the response above already
+      // told the client linking succeeded; this runs the same real
+      // pipeline a webhook push would.
+      const project = getProjectByRepo(db, repoInfo.full_name);
+      fetch(`https://api.github.com/repos/${repo}/commits/${encodeURIComponent(repoInfo.default_branch)}`, {
+        headers: { Authorization: `Bearer ${req.user.token}`, Accept: "application/vnd.github+json" },
+      })
+        .then((r) => (r.ok ? r.json() : null))
+        .then((commit) => {
+          if (commit) {
+            pushHandler({ repo: repoInfo.full_name, branch: repoInfo.default_branch, sha: commit.sha }, project);
+          }
+        })
+        .catch((err) => console.error(`[tugboat] initial deploy failed for ${repo}:`, err));
     } catch (err) {
       res.status(500).json({ error: err.message });
     }
@@ -289,6 +323,10 @@ async function main() {
       }).catch(() => {});
     }
 
+    // Unlinking tears down everything real this project owns — running
+    // containers, the production route if it held it, built images, and
+    // pack's build cache — not just the webhook and the DB row.
+    cleanupRepo({ db, repo, traefikContainerName: TRAEFIK_CONTAINER_NAME, liveBuilds });
     deleteProject(db, repo);
     res.json({ ok: true });
   });
@@ -301,7 +339,58 @@ async function main() {
     if (typeof req.body.rootDirectory === "string") {
       setProjectRootDirectory(db, repo, req.body.rootDirectory.trim().replace(/^\/+|\/+$/g, ""));
     }
-    res.json(getProjectByRepo(db, repo));
+    if (req.body.envVars && typeof req.body.envVars === "object") {
+      setProjectEnvVars(db, repo, req.body.envVars);
+    }
+    if ("memoryLimit" in req.body || "cpuLimit" in req.body) {
+      setProjectResourceLimits(db, repo, {
+        memoryLimit: (req.body.memoryLimit || "").trim() || null,
+        cpuLimit: (req.body.cpuLimit || "").trim() || null,
+      });
+    }
+    const updated = getProjectByRepo(db, repo);
+    res.json({ ...updated, envVars: parseProjectEnvVars(updated) });
+  });
+
+  // Re-points the production route at the previously-promoted image —
+  // reuses the same real blue-green promote() the push pipeline uses.
+  app.post("/api/projects/:owner/:name/rollback", requireAuth, async (req, res) => {
+    const repo = `${req.params.owner}/${req.params.name}`;
+    const project = getProjectByRepo(db, repo);
+    if (!project) return res.status(404).json({ error: "not linked" });
+
+    if (!tryAcquireDeployLock({ repo, branch: project.default_branch })) {
+      return res.status(409).json({ error: "A deployment for this project is already in progress" });
+    }
+
+    try {
+      await rollback({
+        repo,
+        port: APP_PORT,
+        traefikContainerName: TRAEFIK_CONTAINER_NAME,
+        traefikApiUrl,
+        memoryLimit: project.memory_limit,
+        cpuLimit: project.cpu_limit,
+        envVars: parseProjectEnvVars(project),
+      });
+
+      const history = getDeploymentHistory({ repo });
+      const rolledBackTo = history[history.length - 1];
+      clearProductionFlag(db, repo);
+      const deployment = getDeploymentByImageTag(db, repo, rolledBackTo.imageTag);
+      if (deployment) markDeploymentProduction(db, deployment.id);
+
+      res.json({ ok: true, imageTag: rolledBackTo.imageTag });
+    } catch (err) {
+      res.status(400).json({ error: err.message });
+    } finally {
+      releaseDeployLock({ repo, branch: project.default_branch });
+    }
+  });
+
+  app.get("/api/projects/:owner/:name/webhook-deliveries", requireAuth, (req, res) => {
+    const repo = `${req.params.owner}/${req.params.name}`;
+    res.json(listWebhookDeliveries(db, { repo }));
   });
 
   // Deploy on demand — the current HEAD of a branch, with no new commit
@@ -372,7 +461,15 @@ async function main() {
 
     liveBuilds.delete(id);
     deleteDeployment(db, id);
+    fs.rm(screenshotPathFor(id), { force: true }, () => {});
     res.json({ ok: true });
+  });
+
+  app.get("/api/deployments/:id/screenshot", (req, res) => {
+    const id = Number(req.params.id);
+    const screenshotPath = screenshotPathFor(id);
+    if (!fs.existsSync(screenshotPath)) return res.status(404).end();
+    res.sendFile(screenshotPath);
   });
 
   app.get("/api/deployments/:id/stream", (req, res) => {

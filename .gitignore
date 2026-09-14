@@ -3,6 +3,7 @@ node_modules/
 control-plane/.env
 .DS_Store
 control-plane/data/*.db
+control-plane/data/screenshots/
 
 # Only README.md is tracked among markdown files
 *.md

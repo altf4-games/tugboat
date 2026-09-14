@@ -6,10 +6,11 @@ import { startTunnel, stopTunnel } from "./tunnelManager.js";
 import { promote } from "./promote.js";
 import { registerPreview, getPreview } from "./previewRegistry.js";
 import { getDeploymentHistory } from "./deploymentHistory.js";
-import { setDeploymentUrl, markDeploymentProduction, appendDeploymentLog } from "./db.js";
+import { setDeploymentUrl, markDeploymentProduction, appendDeploymentLog, parseProjectEnvVars } from "./db.js";
 import { tryAcquireDeployLock, releaseDeployLock } from "./deployLock.js";
+import { captureScreenshot } from "./screenshot.js";
 
-const APP_PORT = 3000;
+export const APP_PORT = 3000;
 
 // Supports monorepos the same way Vercel/Railway do: a project can name a
 // subdirectory of the repo as where its actual app lives, instead of
@@ -63,6 +64,8 @@ export function createProjectPushHandler({ db, liveBuilds, traefikContainerName,
         stopTunnel(existingPreview.tunnel);
       }
 
+      const envVars = parseProjectEnvVars(project);
+
       const containerName = `tugboat-preview-${build.id}`;
       const { hostPort } = runAppContainer({
         imageTag: result.imageTag,
@@ -71,13 +74,27 @@ export function createProjectPushHandler({ db, liveBuilds, traefikContainerName,
         port: APP_PORT,
         containerName,
         publishPort: true,
+        memoryLimit: project.memory_limit,
+        cpuLimit: project.cpu_limit,
+        envVars,
       });
 
       const tunnel = startTunnel({ localPort: Number(hostPort) });
       const tunnelUrl = await tunnel.url;
 
       setDeploymentUrl(db, build.id, tunnelUrl);
-      registerPreview({ repo: parsedPush.repo, branch: parsedPush.branch, containerName, tunnel });
+      registerPreview({
+        repo: parsedPush.repo,
+        branch: parsedPush.branch,
+        containerName,
+        tunnel,
+        deploymentId: build.id,
+      });
+
+      // Fire-and-forget: a real screenshot of the real deployed page, for
+      // the dashboard's Vercel-style preview thumbnail. Never blocks or
+      // fails the deployment itself.
+      captureScreenshot(tunnelUrl, build.id).catch(() => {});
 
       if (parsedPush.branch === project.default_branch) {
         const history = getDeploymentHistory({ repo: parsedPush.repo });
@@ -90,6 +107,9 @@ export function createProjectPushHandler({ db, liveBuilds, traefikContainerName,
           traefikContainerName,
           traefikApiUrl,
           previousContainerName: previousProduction?.containerName,
+          memoryLimit: project.memory_limit,
+          cpuLimit: project.cpu_limit,
+          envVars,
         });
         markDeploymentProduction(db, build.id);
       }

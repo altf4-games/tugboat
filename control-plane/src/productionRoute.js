@@ -25,6 +25,23 @@ export function buildProductionRouteConfig({ containerName, port }) {
 `;
 }
 
+// Removes the production route file entirely, so Traefik stops routing
+// production.* anywhere — used when the repo that currently holds the
+// single production slot gets unlinked and its container is torn down.
+export function clearProductionRoute({ traefikContainerName }) {
+  try {
+    execFileSync("docker", [
+      "exec",
+      traefikContainerName,
+      "rm",
+      "-f",
+      `${DYNAMIC_CONFIG_DIR}/production.yml`,
+    ]);
+  } catch {
+    // best-effort — Traefik container may already be stopped
+  }
+}
+
 export function writeProductionRoute({ traefikContainerName, containerName, port }) {
   const config = buildProductionRouteConfig({ containerName, port });
   const tmpFile = path.join(os.tmpdir(), `tugboat-production-route-${Date.now()}.yml`);

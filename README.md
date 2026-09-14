@@ -47,17 +47,31 @@ automatically, shown live on a dashboard.
   live at the repo root — this repo itself is a real example: its buildable
   app is in `sample-app/`)
 - Linking creates a **real webhook** on that repo, pointed at this server's
-  own public tunnel
+  own public tunnel, and immediately kicks off **a real first deploy** of the
+  default branch — the same way importing a project on Vercel deploys it
+  right away instead of waiting for the next push
 - Every push gets **a live build log** (streamed as it happens), then **a real
-  public preview URL**
+  public preview URL** and **a real screenshot** of the deployed page
+  (captured headlessly), shown as a thumbnail on the project card and in the
+  deployment list
 - Pushing to the repo's default branch **promotes to production** (blue-green,
   zero dropped requests) automatically
 - **Deploy on demand** — a "Redeploy" button builds and ships the current
   `HEAD` of a branch without needing a new commit, the same way Vercel lets
   you trigger a build without pushing
+- **One-click rollback** — re-points production at the previously-promoted
+  image using the real blue-green swap, no new build needed
+- **Per-project environment variables**, injected into the running container
+  for both previews and production
+- **Per-project resource limits** (memory / CPU), applied to every container
+  via real `docker run --memory` / `--cpus`
+- **Webhook delivery history** on each project's settings page — every real
+  push/delete delivery GitHub sent, with its status (verified, ignored,
+  invalid signature, error) and a short detail line
 - A project page lists its full deployment history (branch, commit, status,
-  live/expandable logs, preview link) and lets you change the root directory
-  or unlink the repo (which removes the webhook) after the fact
+  live/expandable logs, preview link) and lets you change the root directory,
+  environment variables, or resource limits, or unlink the repo (which
+  removes the webhook) after the fact
 
 Run it with:
 
@@ -83,15 +97,15 @@ is a small real React + Vite app (a cookie-clicker game) built specifically
 as a Tugboat test target — link it, push a commit, watch it deploy.
 
 <p align="center">
-  <img src="docs/screenshots/landing.png?v=2" alt="Tugboat landing page" width="800" />
+  <img src="docs/screenshots/landing.png?v=3" alt="Tugboat landing page" width="800" />
 </p>
 
 <p align="center">
-  <img src="docs/screenshots/dashboard.png" alt="Tugboat project dashboard" width="800" />
+  <img src="docs/screenshots/dashboard.png?v=2" alt="Tugboat project dashboard" width="800" />
 </p>
 
 <p align="center">
-  <img src="docs/screenshots/project-detail.png" alt="Tugboat project detail view with live deployment logs" width="800" />
+  <img src="docs/screenshots/project-detail.png?v=2" alt="Tugboat project detail view with rollback, environment variables, resource limits, and webhook delivery history" width="800" />
 </p>
 
 ## Project structure
@@ -121,7 +135,9 @@ scripts/          reserved for standalone CLI wrappers (currently unused — pro
 | `tunnelManager.js` / `cloudflaredUrl.js` | Spawn a `cloudflared` tunnel, parse its real assigned URL |
 | `previewRegistry.js` / `onDeleteTeardown.js` | Tear down a branch's container, route, and tunnel on delete |
 | `resourceLimits.js` | Translate memory/CPU quotas into real `docker run` flags |
-| `db.js` | SQLite-backed deployment + linked-project history |
+| `screenshot.js` | Real headless-Chromium screenshot of a deployment's live preview URL, for the dashboard thumbnail |
+| `repoCleanup.js` | Unlink cleanup: stops real containers, clears the production route if held, deletes images and pack build cache |
+| `db.js` | SQLite-backed deployment + linked-project history, env vars, resource limits, webhook delivery log |
 | `dashboardServer.js` | Standalone build-log-streaming API, proven by its own test (superseded by `server.js` for the real app) |
 | `session.js` / `githubOAuth.js` | Signed cookie sessions and the real GitHub OAuth login flow |
 | `cloneRepo.js` | Clones a linked repo at the exact pushed commit (with token auth for private repos) |
@@ -158,6 +174,11 @@ No Traefik install needed — it runs as a container, pulled automatically.
 cd sample-app && npm install
 cd ../control-plane && npm install
 ```
+
+`control-plane`'s `npm install` pulls down a real headless Chromium (via
+`puppeteer`) used to capture real screenshots of each deployment for the
+dashboard's preview thumbnails — that one install step is a few hundred MB
+and takes a bit longer than the rest.
 
 The **test suite** needs no config — it creates its own throwaway secrets,
 ports, and container/branch names at runtime.
@@ -305,11 +326,19 @@ docker run --rm -p 3000:3000 tugboat/sample-app:manual
 
 ## Cleaning up disk space afterward
 
-Every real `pack build` leaves behind a builder/run image pair (the
-`paketobuildpacks/builder-jammy-base` image alone is several GB) and a pair
-of named cache volumes per unique image tag. None of this is cleaned up
-automatically — by design, `pack` caches it so the *next* build of the same
-app is fast. Once you're done testing or demoing, reclaim it with:
+**Per-project cleanup happens automatically.** Clicking **Unlink** in the web
+app doesn't just remove the GitHub webhook — it tears down that project's
+running containers (preview and production), clears the Traefik production
+route if it held it, deletes its deployment history and screenshots from the
+dashboard, removes every image `pack` built for it, and removes its
+`pack-cache-*` build cache volumes. Nothing real is left behind per repo.
+
+What's left after that is shared, cross-project stuff: the
+`paketobuildpacks/builder-jammy-base` builder/run image pair (several GB,
+shared by every build regardless of repo) and Traefik/nginx's own images.
+Every real `pack build` also still leaves that shared builder cache behind by
+design, so the *next* build of any app is fast. Once you're fully done with
+Tugboat itself, reclaim the rest with:
 
 ```bash
 # stop and remove every tugboat-related container (safe to run any time)

@@ -14,7 +14,12 @@ const COLUMN_MIGRATIONS = {
     ["preview_url", "TEXT"],
     ["is_production", "INTEGER NOT NULL DEFAULT 0"],
   ],
-  projects: [["root_directory", "TEXT NOT NULL DEFAULT ''"]],
+  projects: [
+    ["root_directory", "TEXT NOT NULL DEFAULT ''"],
+    ["env_vars", "TEXT NOT NULL DEFAULT '{}'"],
+    ["memory_limit", "TEXT"],
+    ["cpu_limit", "TEXT"],
+  ],
 };
 
 function migrateColumns(db) {
@@ -62,6 +67,17 @@ export function openDb(dbPath = DEFAULT_DB_PATH) {
       data TEXT NOT NULL,
       created_at INTEGER NOT NULL
     );
+
+    CREATE TABLE IF NOT EXISTS webhook_deliveries (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      project_id INTEGER,
+      repo TEXT NOT NULL,
+      event TEXT NOT NULL,
+      delivery_id TEXT,
+      status TEXT NOT NULL,
+      detail TEXT,
+      received_at INTEGER NOT NULL
+    );
   `);
   migrateColumns(db);
   return db;
@@ -101,12 +117,28 @@ export function markDeploymentProduction(db, id) {
   db.prepare("UPDATE deployments SET is_production = 1 WHERE id = ?").run(id);
 }
 
+export function clearProductionFlag(db, repo) {
+  db.prepare("UPDATE deployments SET is_production = 0 WHERE repo = ?").run(repo);
+}
+
+export function getDeploymentByImageTag(db, repo, imageTag) {
+  return db
+    .prepare(
+      "SELECT * FROM deployments WHERE repo = ? AND image_tag = ? ORDER BY created_at DESC LIMIT 1",
+    )
+    .get(repo, imageTag);
+}
+
 export function getDeployment(db, id) {
   return db.prepare("SELECT * FROM deployments WHERE id = ?").get(id);
 }
 
 export function deleteDeployment(db, id) {
   db.prepare("DELETE FROM deployments WHERE id = ?").run(id);
+}
+
+export function deleteDeploymentsByRepo(db, repo) {
+  db.prepare("DELETE FROM deployments WHERE repo = ?").run(repo);
 }
 
 export function listDeployments(db, { repo } = {}) {
@@ -172,6 +204,41 @@ export function setProjectHookId(db, id, hookId) {
 
 export function setProjectRootDirectory(db, repo, rootDirectory) {
   db.prepare("UPDATE projects SET root_directory = ? WHERE repo = ?").run(rootDirectory, repo);
+}
+
+export function setProjectEnvVars(db, repo, envVars) {
+  db.prepare("UPDATE projects SET env_vars = ? WHERE repo = ?").run(JSON.stringify(envVars), repo);
+}
+
+export function parseProjectEnvVars(project) {
+  try {
+    return JSON.parse(project.env_vars || "{}");
+  } catch {
+    return {};
+  }
+}
+
+export function setProjectResourceLimits(db, repo, { memoryLimit, cpuLimit }) {
+  db.prepare("UPDATE projects SET memory_limit = ?, cpu_limit = ? WHERE repo = ?").run(
+    memoryLimit || null,
+    cpuLimit || null,
+    repo,
+  );
+}
+
+export function recordWebhookDelivery(db, { projectId, repo, event, deliveryId, status, detail }) {
+  db.prepare(
+    `INSERT INTO webhook_deliveries (project_id, repo, event, delivery_id, status, detail, received_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?)`,
+  ).run(projectId ?? null, repo, event ?? "unknown", deliveryId ?? null, status, detail ?? null, Date.now());
+}
+
+export function listWebhookDeliveries(db, { repo, limit = 20 } = {}) {
+  return db
+    .prepare(
+      "SELECT * FROM webhook_deliveries WHERE repo = ? ORDER BY received_at DESC, id DESC LIMIT ?",
+    )
+    .all(repo, limit);
 }
 
 export function listProjects(db) {

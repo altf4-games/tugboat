@@ -3,6 +3,10 @@ import { traefikLabelsFor } from "./dockerLabels.js";
 import { NETWORK_NAME } from "./traefikController.js";
 import { dockerResourceArgs } from "./resourceLimits.js";
 
+export function envArgsFor(envVars) {
+  return Object.entries(envVars || {}).flatMap(([key, value]) => ["-e", `${key}=${value}`]);
+}
+
 export function runAppContainer({
   imageTag,
   repo,
@@ -12,6 +16,7 @@ export function runAppContainer({
   publishPort = false,
   memoryLimit,
   cpuLimit,
+  envVars,
   command = [],
 }) {
   const labels = traefikLabelsFor({ repo, branch, port });
@@ -34,6 +39,7 @@ export function runAppContainer({
     // repo that reads process.env.PORT works without extra config.
     "-e",
     `PORT=${port}`,
+    ...envArgsFor(envVars),
     ...publishArgs,
     ...resourceArgs,
     ...labelArgs,

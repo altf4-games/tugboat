@@ -15,3 +15,7 @@ export function getPreviousImageTag({ repo }) {
   if (history.length < 2) return null;
   return history[history.length - 2].imageTag;
 }
+
+export function clearDeploymentHistory({ repo }) {
+  historyByRepo.delete(repo);
+}

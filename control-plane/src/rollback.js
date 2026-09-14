@@ -1,7 +1,15 @@
 import { promote } from "./promote.js";
 import { getDeploymentHistory } from "./deploymentHistory.js";
 
-export async function rollback({ repo, port = 3000, traefikContainerName, traefikApiUrl }) {
+export async function rollback({
+  repo,
+  port = 3000,
+  traefikContainerName,
+  traefikApiUrl,
+  memoryLimit,
+  cpuLimit,
+  envVars,
+}) {
   const history = getDeploymentHistory({ repo });
 
   if (history.length < 2) {
@@ -21,5 +29,8 @@ export async function rollback({ repo, port = 3000, traefikContainerName, traefi
     traefikContainerName,
     traefikApiUrl,
     previousContainerName: current.containerName,
+    memoryLimit,
+    cpuLimit,
+    envVars,
   });
 }
