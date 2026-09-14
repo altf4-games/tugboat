@@ -2,12 +2,20 @@ import { execFileSync } from "node:child_process";
 import { traefikLabelsFor } from "./dockerLabels.js";
 import { NETWORK_NAME } from "./traefikController.js";
 
-export function runAppContainer({ imageTag, repo, branch, port = 3000, containerName }) {
+export function runAppContainer({
+  imageTag,
+  repo,
+  branch,
+  port = 3000,
+  containerName,
+  publishPort = false,
+}) {
   const labels = traefikLabelsFor({ repo, branch, port });
   const labelArgs = Object.entries(labels).flatMap(([key, value]) => [
     "--label",
     `${key}=${value}`,
   ]);
+  const publishArgs = publishPort ? ["-p", `0:${port}`] : [];
 
   execFileSync("docker", [
     "run",
@@ -16,11 +24,19 @@ export function runAppContainer({ imageTag, repo, branch, port = 3000, container
     NETWORK_NAME,
     "--name",
     containerName,
+    ...publishArgs,
     ...labelArgs,
     imageTag,
   ]);
 
-  return { containerName };
+  if (!publishPort) {
+    return { containerName };
+  }
+
+  const hostPort = JSON.parse(execFileSync("docker", ["inspect", containerName]).toString())[0]
+    .NetworkSettings.Ports[`${port}/tcp`][0].HostPort;
+
+  return { containerName, hostPort };
 }
 
 export function stopAppContainer(containerName) {
