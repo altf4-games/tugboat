@@ -94,7 +94,7 @@ describe("Phase 2 integration: real push triggers a real pack build of a real, r
         secret,
         onPush: (parsed, rawPayload) => {
           // This webhook fires for every push on the repo, including ones
-          // from other tests/branches; only build our own branch's push.
+          // from other tests/branches; only build the push for this test's branch.
           if (parsed.branch !== branchName) return;
           buildHandler(parsed, rawPayload);
         },

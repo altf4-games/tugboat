@@ -19,8 +19,8 @@ export function screenshotPathFor(deploymentId) {
 // has been observed to lag a fresh *.trycloudflare.com subdomain by far
 // longer than the public resolver (see dnsReachability.js) — so even after
 // projectPipeline.js confirms the hostname resolves publicly, Chromium's own
-// lookup can still fail here. Rather than wait out that lag, resolve the
-// real IP via the public resolver ourselves and hand Chromium a
+// lookup can still fail here. Rather than wait out that lag, this resolves
+// the real IP via the public resolver and hands Chromium a
 // --host-resolver-rules override so it skips its own (lagging) lookup
 // entirely and connects straight to the known-good address — the request
 // still carries the real hostname as its Host header/SNI, so Cloudflare's

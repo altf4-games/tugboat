@@ -86,7 +86,7 @@ export function createProjectPushHandler({ db, liveBuilds, traefikContainerName,
       // cloudflared reports the URL the moment the tunnel registers, but
       // the *.trycloudflare.com subdomain can take a while to actually
       // become resolvable — wait for that before handing the link out or
-      // trying to screenshot it, so we don't hand out a dead-looking link.
+      // trying to screenshot it, so the pipeline doesn't hand out a dead-looking link.
       await waitForDnsReady(new URL(tunnelUrl).hostname).catch((err) => {
         appendDeploymentLog(
           db,

@@ -118,7 +118,7 @@ export async function promote({
 
   // Atomically repoint the production route at the new container. Unlike
   // Docker-label-driven discovery (used for preview branches), the file
-  // provider gives us a single, explicit backend with no ambiguous window
+  // provider gives a single, explicit backend with no ambiguous window
   // where both old and new containers are simultaneously in rotation —
   // Traefik empirically routes to a Docker-label-discovered backend before
   // its first health check completes, which drops requests during a swap.

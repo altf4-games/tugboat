@@ -201,7 +201,7 @@ describe("Phase 8 integration: deleting a branch tears down its container, route
         const preview = getPreview({ repo, branch: branchName });
         expect(preview).toBeDefined();
 
-        // Confirm the container is really running before we delete anything.
+        // Confirm the container is really running before deleting anything.
         const runningBefore = execFileSync("docker", [
           "ps",
           "--filter",
@@ -216,7 +216,7 @@ describe("Phase 8 integration: deleting a branch tears down its container, route
         const tunnelPid = preview.tunnel.process.pid;
         expect(isProcessAlive(tunnelPid)).toBe(true);
 
-        // Confirm the Traefik route is really live before we delete anything.
+        // Confirm the Traefik route is really live before deleting anything.
         const previewUrl = `http://${hostnameFor({ branch: branchName })}:${httpPort}/health`;
         await waitUntil(
           async () => {

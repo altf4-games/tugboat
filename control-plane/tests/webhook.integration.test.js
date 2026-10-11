@@ -86,7 +86,7 @@ describe("Phase 1 integration: real GitHub push webhook delivery", () => {
         secret,
         onPush: (parsed, rawPayload) => {
           // This webhook fires for every push on the repo, including ones
-          // from other tests/branches; only react to our own branch.
+          // from other tests/branches; only react to this test's branch.
           if (parsed.branch !== branchName) return;
           receivedPushes.push(parsed);
           receivedRawPayloads.push(rawPayload);
