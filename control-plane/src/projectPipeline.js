@@ -9,7 +9,7 @@ import { getDeploymentHistory } from "./deploymentHistory.js";
 import { setDeploymentUrl, markDeploymentProduction, appendDeploymentLog, parseProjectEnvVars } from "./db.js";
 import { tryAcquireDeployLock, releaseDeployLock } from "./deployLock.js";
 import { captureScreenshot } from "./screenshot.js";
-import { waitForDnsReady } from "./dnsReachability.js";
+import { waitForTunnelReady } from "./tunnelReachability.js";
 
 export const APP_PORT = 3000;
 
@@ -84,10 +84,11 @@ export function createProjectPushHandler({ db, liveBuilds, traefikContainerName,
       const tunnelUrl = await tunnel.url;
 
       // cloudflared reports the URL the moment the tunnel registers, but
-      // the *.trycloudflare.com subdomain can take a while to actually
-      // become resolvable — wait for that before handing the link out or
-      // trying to screenshot it, so the pipeline doesn't hand out a dead-looking link.
-      await waitForDnsReady(new URL(tunnelUrl).hostname).catch((err) => {
+      // the *.trycloudflare.com subdomain takes a while to resolve and then
+      // to actually carry traffic (until then Cloudflare serves its 1033
+      // error page). Wait for a real response through the public URL before
+      // handing the link out or screenshotting it.
+      await waitForTunnelReady(tunnelUrl).catch((err) => {
         appendDeploymentLog(
           db,
           build.id,
