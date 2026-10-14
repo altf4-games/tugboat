@@ -204,6 +204,12 @@ async function main() {
         })),
       );
     } catch (err) {
+      // GitHub rejected the stored token (revoked or expired): end the
+      // session so the dashboard sends the user back to sign in.
+      if (err.status === 401) {
+        destroySession(db, parseCookies(req)[SESSION_COOKIE]);
+        return res.status(401).json({ error: "not signed in" });
+      }
       res.status(502).json({ error: err.message });
     }
   });

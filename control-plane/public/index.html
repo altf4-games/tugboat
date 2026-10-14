@@ -889,8 +889,19 @@ async function openLinkModal() {
   document.getElementById("linkModal").classList.add("open");
   document.getElementById("repoSearch").style.display = "block";
   document.getElementById("repoList").innerHTML = `<div class="hint" style="padding:10px;">Loading your repos…</div>`;
-  const res = await api("/api/repos");
-  repos = await res.json();
+  let res;
+  try {
+    res = await api("/api/repos");
+  } catch {
+    closeLinkModal(); // signed out: api() already showed the login screen
+    return;
+  }
+  const body = await res.json();
+  if (!res.ok) {
+    document.getElementById("repoList").innerHTML = `<div class="hint" style="padding:10px;">Couldn't load your repos: ${escapeAttr(body.error || res.status)}</div>`;
+    return;
+  }
+  repos = body;
   renderRepoList();
 }
 

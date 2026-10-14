@@ -48,7 +48,9 @@ export async function fetchGithubRepos(token) {
       `https://api.github.com/user/repos?per_page=100&sort=updated&page=${page}`,
       { headers: { Authorization: `Bearer ${token}`, Accept: "application/vnd.github+json" } },
     );
-    if (!res.ok) throw new Error(`GitHub API /user/repos failed: ${res.status}`);
+    if (!res.ok) {
+      throw Object.assign(new Error(`GitHub API /user/repos failed: ${res.status}`), { status: res.status });
+    }
     const pageRepos = await res.json();
     repos.push(...pageRepos);
     if (pageRepos.length < 100) break;
