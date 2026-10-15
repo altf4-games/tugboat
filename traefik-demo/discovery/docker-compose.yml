@@ -1,0 +1,41 @@
+# Traefik discovers containers through the Docker socket and builds routes
+# from their labels. Nothing here lists the apps: Traefik learns about them
+# as they start and stop.
+name: traefik-discovery
+
+services:
+  traefik:
+    image: traefik:v3.7.14
+    command:
+      - --api.insecure=true
+      - --providers.docker=true
+      - --providers.docker.exposedbydefault=false
+      - --entrypoints.web.address=:80
+      - --log.level=INFO
+    ports:
+      - "8000:80"     # entrypoint "web"
+      - "8081:8080"   # dashboard and API
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+
+  # Start these later with: docker compose up -d whoami
+  # and scale with:        docker compose up -d --scale whoami=3
+  whoami:
+    image: traefik/whoami:latest
+    profiles: ["apps"]
+    labels:
+      - traefik.enable=true
+      - traefik.http.routers.whoami.rule=Host(`whoami.127.0.0.1.nip.io`)
+      - traefik.http.routers.whoami.entrypoints=web
+      - traefik.http.routers.whoami.middlewares=served-by
+      - traefik.http.middlewares.served-by.headers.customresponseheaders.X-Served-By=traefik
+
+  # A second, unrelated app with its own hostname.
+  hello:
+    image: traefik/whoami:latest
+    profiles: ["apps"]
+    command: ["--name", "hello-app"]
+    labels:
+      - traefik.enable=true
+      - traefik.http.routers.hello.rule=Host(`hello.127.0.0.1.nip.io`)
+      - traefik.http.routers.hello.entrypoints=web

@@ -1,0 +1,75 @@
+# Automatic HTTPS with a real ACME flow, run locally.
+# Pebble is Let's Encrypt's own ACME test server. Traefik asks it for a
+# certificate exactly as it would ask Let's Encrypt, and the challenge
+# validation happens for real: Pebble connects back to Traefik on port 5002.
+# The challenge test server answers Pebble's DNS lookups, pointing every name
+# at Traefik, which stands in for the public DNS record a real domain has.
+name: traefik-https
+
+networks:
+  demo:
+    ipam:
+      config:
+        - subnet: 10.30.50.0/24
+
+services:
+  pebble:
+    image: ghcr.io/letsencrypt/pebble:latest
+    command: -config test/config/pebble-config.json -strict -dnsserver 10.30.50.3:8053
+    environment:
+      PEBBLE_VA_NOSLEEP: "1"
+    ports:
+      - "14000:14000"   # ACME directory
+      - "15000:15000"   # management API (used to fetch the issuing root)
+    networks:
+      demo:
+        ipv4_address: 10.30.50.2
+
+  challtestsrv:
+    image: ghcr.io/letsencrypt/pebble-challtestsrv:latest
+    command: -defaultIPv6 "" -defaultIPv4 10.30.50.4
+    networks:
+      demo:
+        ipv4_address: 10.30.50.3
+
+  traefik:
+    image: traefik:v3.7.14
+    command:
+      - --api.insecure=true
+      - --providers.docker=true
+      - --providers.docker.exposedbydefault=false
+      - --providers.docker.network=traefik-https_demo
+      - --entrypoints.web.address=:5002
+      - --entrypoints.websecure.address=:443
+      - --certificatesresolvers.pebble.acme.email=student@example.com
+      - --certificatesresolvers.pebble.acme.storage=/acme/acme.json
+      - --certificatesresolvers.pebble.acme.caserver=https://pebble:14000/dir
+      - --certificatesresolvers.pebble.acme.httpchallenge.entrypoint=web
+      - --log.level=INFO
+    environment:
+      # Trust Pebble's own CA for the ACME directory connection only.
+      LEGO_CA_CERTIFICATES: /pebble/pebble.minica.pem
+    ports:
+      - "8443:443"
+      - "8082:8080"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - ./pebble/pebble.minica.pem:/pebble/pebble.minica.pem:ro
+      - acme:/acme
+    networks:
+      demo:
+        ipv4_address: 10.30.50.4
+
+  secure:
+    image: traefik/whoami:latest
+    profiles: ["apps"]
+    networks:
+      - demo
+    labels:
+      - traefik.enable=true
+      - traefik.http.routers.secure.rule=Host(`secure.demo.test`)
+      - traefik.http.routers.secure.entrypoints=websecure
+      - traefik.http.routers.secure.tls.certresolver=pebble
+
+volumes:
+  acme:
