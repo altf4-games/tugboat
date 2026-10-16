@@ -2,6 +2,8 @@
 
 Two small Docker Compose stacks that show what Traefik does on its own, without Tugboat. They back the DevOps Theory IA case study on Traefik. Both stacks use only Docker and public images. Nothing is mocked.
 
+To run a demo step by step, use `./demo.sh 1` (service discovery) or `./demo.sh 2` (automatic HTTPS). Each command is shown with a one-line cue and runs when you press Enter. Docker has to be running first.
+
 ## 1. Service discovery (`discovery/`)
 
 Traefik reads routing rules from container labels through the Docker socket. Nothing lists the apps in a config file.
